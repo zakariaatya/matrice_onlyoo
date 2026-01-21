@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * =========================
+ * ENUMS
+ * =========================
+ */
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  AGENT
+  BACKOFFICE
+}
+
+enum QuoteStatus {
+  DRAFT
+  TO_SEND
+  MAIL_SENT
+  NEED_FIX
+  REJECTED
+}
+
+/**
+ * =========================
+ * USERS
+ * =========================
+ */
+model User {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  identifier String   @unique
+  password   String
+  name       String
+  role       UserRole
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  quotes    Quote[]    @relation("UserQuotes")
+  auditLogs AuditLog[]
+
+  notificationsCreated Notification[] @relation("NotificationCreator")
+}
+
+/**
+ * =========================
+ * MATRIX (la matrice web)
+ * - sections = colonnes/zones (Type de pack, GSM, Options, etc.)
+ * - choices  = valeurs possibles
+ * - rules    = dépendances (SHOW_IF / HIDE_IF / FORBID_IF / REQUIRE_IF)
+ * =========================
+ */
+
+model MatrixSection {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  title     String
+  type      String // 'single' | 'multi' | 'boolean'
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  choices MatrixChoice[]
+}
+
+model MatrixChoice {
+  id        Int      @id @default(autoincrement())
+  sectionId Int
+  key       String   @unique
+  label     String
+  description String?
+  priceY1   Float    @default(0)
+  priceY2   Float    @default(0)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  meta      Json?
+  parentId  Int?     // Pour la hiérarchie (sous-choix)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  section MatrixSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  // Hiérarchie parent-enfant (1 niveau)
+  parent   MatrixChoice?  @relation("ChoiceHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children MatrixChoice[] @relation("ChoiceHierarchy")
+
+  // Règles où ce choix est target (cible)
+  rulesAsTarget  MatrixRule[] @relation("rule_target")
+  // Règles où ce choix est dependsOn (condition)
+  rulesAsDepends MatrixRule[] @relation("rule_depends")
+
+  selections QuoteSelection[]
+
+  @@index([parentId])
+}
+
+model MatrixRule {
+  id          Int      @id @default(autoincrement())
+  type        String // 'SHOW_IF' | 'HIDE_IF' | 'FORBID_IF' | 'REQUIRE_IF'
+  targetId    Int
+  dependsOnId Int
+  message     String?
+  createdAt   DateTime @default(now())
+
+  target    MatrixChoice @relation("rule_target", fields: [targetId], references: [id], onDelete: Cascade)
+  dependsOn MatrixChoice @relation("rule_depends", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@index([targetId])
+  @@index([dependsOnId])
+}
+
+/**
+ * =========================
+ * QUOTES (devis)
+ * =========================
+ */
+
+model Quote {
+  id            Int         @id @default(autoincrement())
+  agentId       Int
+  customerName  String
+  customerEmail String
+  totalY1       Float       @default(0)
+  totalY2       Float       @default(0)
+  emailContent  String      @db.Text
+  status        QuoteStatus @default(TO_SEND)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  agent User @relation("UserQuotes", fields: [agentId], references: [id])
+
+  selections QuoteSelection[]
+}
+
+model QuoteSelection {
+  id       Int @id @default(autoincrement())
+  quoteId  Int
+  choiceId Int
+
+  quote  Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  choice MatrixChoice @relation(fields: [choiceId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, choiceId])
+  @@index([quoteId])
+  @@index([choiceId])
+}
+
+/**
+ * =========================
+ * AUDIT LOG (optionnel)
+ * =========================
+ */
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  action    String
+  tableName String
+  recordId  Int?
+  oldValue  String?  @db.Text
+  newValue  String?  @db.Text
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  title     String
+  message   String   @db.Text
+  audience  String // "ALL" | "AGENT" | "MANAGER" | "BACKOFFICE"
+  createdAt DateTime @default(now())
+  createdBy Int?
+  creator   User?    @relation("NotificationCreator", fields: [createdBy], references: [id])
+}
+
+model MatrixConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * =========================
+ * MATRIX ALERTS (alertes gérées par le Manager)
+ * - Conditions pour afficher des alertes à l'agent
+ * - Peut bloquer l'envoi si blocking = true
+ * =========================
+ */
+model MatrixAlert {
+  id              Int      @id @default(autoincrement())
+  name            String   // Nom de l'alerte (ex: "Promo obligatoire")
+  message         String   // Message affiché à l'agent
+  conditionType   String   // Type de condition: "SECTION_REQUIRED", "SECTION_EMPTY", "CUSTOM"
+  conditionConfig Json     // Configuration de la condition (ex: { sectionKey: "promo" })
+  blocking        Boolean  @default(true)  // Si true, bloque l'envoi
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

@@ -1,0 +1,27 @@
+# Node
+**/node_modules/
+
+# Builds
+**/dist/
+**/build/
+
+# Logs
+*.log
+
+# OS / Editors
+.DS_Store
+Thumbs.db
+.vscode/
+frontend/src/.~lock.*
+
+# Prisma cache
+**/node_modules/.prisma/
+**/.prisma/
+
+# ENV
+**/.env
+**/.env.*
+
+# Backups (too large for GitHub)
+*.tar.gz
+*.sql
