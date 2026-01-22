@@ -6,3 +6,13 @@
 html, body {
   height: 100%;
 }
+
+.matrix-select {
+  background-color: rgba(0, 0, 0, 0.35);
+  color: #e8eefc;
+}
+
+.matrix-select option {
+  background-color: #0f172a;
+  color: #e8eefc;
+}

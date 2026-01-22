@@ -617,6 +617,18 @@ export default function MatrixAgent({ currentUser }) {
     return c?.label || "";
   }, [sections, selectedSingle, choiceById, sectionHasToken]);
 
+  const packChoiceKey = useMemo(() => {
+    const packSec =
+      sections.find((s) => s.key === "pack_type") ||
+      sections.find((s) => sectionHasToken(s, "pack")) ||
+      null;
+    if (!packSec) return "";
+    const packChoiceId = selectedSingle[packSec.key];
+    if (!packChoiceId) return "";
+    const c = choiceById.get(Number(packChoiceId));
+    return c?.key || "";
+  }, [sections, selectedSingle, choiceById, sectionHasToken]);
+
   const gsmSelected = useMemo(() => gsmCoreQty > 0, [gsmCoreQty]);
 
   const computedPackType = useMemo(() => {
@@ -722,6 +734,30 @@ export default function MatrixAgent({ currentUser }) {
     const p = (selectedPromoLabel || "").toLowerCase();
     return p.includes("cadeaux") || p.includes("sans promo");
   }, [selectedPromoLabel]);
+
+  const tvPackKeys = useMemo(() => new Set(["flex_easy"]), []);
+  const internetPackKeys = useMemo(
+    () => new Set(["packflex", "flex_xs", "Giga_Fiber", "Ultra_Fiber"]),
+    []
+  );
+
+  const hasTvPackSelected = useMemo(() => {
+    if (packChoiceKey) return tvPackKeys.has(packChoiceKey);
+    const packSec = sections.find((s) => s.key === "pack_type");
+    if (!packSec) return false;
+    const secKey = packSec.key;
+    const ids = selectedMulti[secKey] || [];
+    return ids.some((id) => tvPackKeys.has(choiceById.get(Number(id))?.key));
+  }, [tvPackKeys, packChoiceKey, sections, selectedMulti, choiceById]);
+
+  const hasInternetPackSelected = useMemo(() => {
+    if (packChoiceKey) return internetPackKeys.has(packChoiceKey);
+    const packSec = sections.find((s) => s.key === "pack_type");
+    if (!packSec) return false;
+    const secKey = packSec.key;
+    const ids = selectedMulti[secKey] || [];
+    return ids.some((id) => internetPackKeys.has(choiceById.get(Number(id))?.key));
+  }, [internetPackKeys, packChoiceKey, sections, selectedMulti, choiceById]);
 
 
 
@@ -858,11 +894,17 @@ export default function MatrixAgent({ currentUser }) {
       return;
     }
 
-    // ✅ VALIDATION: Si promo = "Cadeaux", au moins un GSM doit être sélectionné
+    // ✅ VALIDATION: Si promo = "Cadeaux", GSM Flex + Internet + TV requis
     if (promoSection && hasPromoSelected()) {
-      if (isCadeauxSelected && gsmCoreQty === 0) {
-        setErr("⚠️ Vous devez sélectionner au moins un GSM pour une promotion Cadeaux.");
-        return;
+      if (isCadeauxSelected) {
+        if (gsmFlexQtyForDiscount === 0) {
+          setErr("⚠️ Pour une promotion Cadeaux, sélectionnez au moins un GSM Flex.");
+          return;
+        }
+        if (!hasTvPackSelected || !hasInternetPackSelected) {
+          setErr("⚠️ Pour une promotion Cadeaux, sélectionnez 1 TV Proximus et 1 Internet dans Pack Flex.");
+          return;
+        }
       }
     }
 
@@ -937,6 +979,7 @@ export default function MatrixAgent({ currentUser }) {
               <div style={styles.label}>👤 Civilité *</div>
               <select
                 style={styles.select}
+                className="matrix-select"
                 value={client.civility}
                 onChange={(e) => setClient((p) => ({ ...p, civility: e.target.value }))}
               >
