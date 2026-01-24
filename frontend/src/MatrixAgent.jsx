@@ -27,14 +27,13 @@ const GSM_FLEX_MAX = 6;
   const styles = {
   page: {
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial",
-    background: "transparent",
+    background: "#0b1220",
     minHeight: "100vh",
     padding: 20,
     color: "#ffffff",
     borderRadius: 15,
   },
   shell: { maxWidth: 1900, margin: "0 auto" },
-  zoomWrap: { transform: "scale(0.9)", transformOrigin: "top center" },
   header: {
     background: "linear-gradient(135deg, rgba(126,60,255,0.25), rgba(0,153,255,0.18))",
     border: "1px solid rgba(255,255,255,0.10)",
@@ -290,8 +289,6 @@ export default function MatrixAgent({ currentUser }) {
 
   // GSM qty: choiceId -> qty (qty>0 = selected)
   const [gsmQty, setGsmQty] = useState({});
-  // Quantité pour choix non-GSM (ex: Wifi Booster)
-  const [choiceQty, setChoiceQty] = useState({});
 
   const [client, setClient] = useState({
     civility: "",
@@ -307,7 +304,6 @@ export default function MatrixAgent({ currentUser }) {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
   const [sending, setSending] = useState(false);
-  const [dataPhoneNote, setDataPhoneNote] = useState("");
 
   const validateClient = useCallback((c) => {
     const emailOk = isValidEmail(c.email);
@@ -363,15 +359,11 @@ export default function MatrixAgent({ currentUser }) {
   const selectedIds = useMemo(() => {
     const ids = [];
     Object.values(selectedSingle).forEach((v) => v && ids.push(Number(v)));
-    Object.values(selectedMulti).forEach((arr) => {
-      const list = Array.isArray(arr) ? arr : arr ? [arr] : [];
-      list.forEach((id) => ids.push(Number(id)));
-    });
-    Object.entries(choiceQty)
-      .filter(([_, qty]) => Number(qty) > 0)
-      .forEach(([idStr]) => ids.push(Number(idStr)));
-    return Array.from(new Set(ids));
-  }, [selectedSingle, selectedMulti, choiceQty]);
+    Object.values(selectedMulti).forEach((arr) =>
+      (arr || []).forEach((id) => ids.push(Number(id)))
+    );
+    return ids;
+  }, [selectedSingle, selectedMulti]);
 
   const isVisibleChoice = useCallback(
     (choiceId) => {
@@ -493,18 +485,6 @@ export default function MatrixAgent({ currentUser }) {
 
   const gsmTotalQty = gsmTotals.totalQty;
   const gsmCoreQty = useMemo(() => gsmTotals.flexQty + gsmTotals.soloQty, [gsmTotals.flexQty, gsmTotals.soloQty]);
-  const qtyByChoice = useMemo(() => {
-    const map = new Map();
-    Object.entries(gsmQty).forEach(([idStr, qty]) => {
-      const id = Number(idStr);
-      if (Number.isFinite(id)) map.set(id, Number(qty || 0));
-    });
-    Object.entries(choiceQty).forEach(([idStr, qty]) => {
-      const id = Number(idStr);
-      if (Number.isFinite(id)) map.set(id, Number(qty || 0));
-    });
-    return map;
-  }, [gsmQty, choiceQty]);
   const gsmFlexQtyForDiscount = useMemo(() => {
     let qty = 0;
     Object.entries(gsmQty).forEach(([idStr, q]) => {
@@ -585,37 +565,6 @@ export default function MatrixAgent({ currentUser }) {
     [getSectionKeyForChoice, isGsmSoloSection, isGsmOptSection]
   );
 
-  const setChoiceQuantity = useCallback(
-    (choiceId, nextQty, sectionKey, sectionType) => {
-      const c = choiceById.get(choiceId);
-      if (!c || !c.allowQty) return;
-      const max = c.maxQty ? Number(c.maxQty) : null;
-      const qty = Math.max(0, Number(nextQty || 0));
-      const capped = max ? Math.min(qty, max) : qty;
-
-      setChoiceQty((prev) => {
-        let next = { ...prev };
-        if (sectionType === "single" && sectionKey) {
-          const sec = sections.find((s) => s.key === sectionKey);
-          if (sec) {
-            (sec.choices || []).forEach((ch) => {
-              if (ch.allowQty) delete next[ch.id];
-            });
-          }
-        }
-
-        if (capped <= 0) {
-          delete next[choiceId];
-          return next;
-        }
-
-        next[choiceId] = capped;
-        return next;
-      });
-    },
-    [choiceById, sections]
-  );
-
   const incGsm = useCallback(
     (choiceId) => setGsmQuantity(choiceId, Number(gsmQty[choiceId] || 0) + 1),
     [gsmQty, setGsmQuantity]
@@ -630,13 +579,18 @@ export default function MatrixAgent({ currentUser }) {
     let y1 = 0;
     let y2 = 0;
 
-    const ids = new Set(selectedIds);
-    qtyByChoice.forEach((_qty, id) => ids.add(id));
-
-    ids.forEach((id) => {
+    selectedIds.forEach((id) => {
       const c = choiceById.get(id);
       if (!c) return;
-      const q = qtyByChoice.get(id) || 1;
+      y1 += Number(c.priceY1 || 0);
+      y2 += Number(c.priceY2 || 0);
+    });
+
+    Object.entries(gsmQty).forEach(([idStr, qty]) => {
+      const id = Number(idStr);
+      const c = choiceById.get(id);
+      if (!c) return;
+      const q = Number(qty || 0);
       y1 += Number(c.priceY1 || 0) * q;
       y2 += Number(c.priceY2 || 0) * q;
     });
@@ -647,7 +601,7 @@ export default function MatrixAgent({ currentUser }) {
     }
 
     return { y1, y2 };
-  }, [selectedIds, qtyByChoice, choiceById, gsmFlexDiscount]);
+  }, [selectedIds, gsmQty, choiceById, gsmFlexDiscount]);
 
   // Pack label
   const packLabel = useMemo(() => {
@@ -661,18 +615,6 @@ export default function MatrixAgent({ currentUser }) {
     if (!packChoiceId) return "";
     const c = choiceById.get(Number(packChoiceId));
     return c?.label || "";
-  }, [sections, selectedSingle, choiceById, sectionHasToken]);
-
-  const packChoiceKey = useMemo(() => {
-    const packSec =
-      sections.find((s) => s.key === "pack_type") ||
-      sections.find((s) => sectionHasToken(s, "pack")) ||
-      null;
-    if (!packSec) return "";
-    const packChoiceId = selectedSingle[packSec.key];
-    if (!packChoiceId) return "";
-    const c = choiceById.get(Number(packChoiceId));
-    return c?.key || "";
   }, [sections, selectedSingle, choiceById, sectionHasToken]);
 
   const gsmSelected = useMemo(() => gsmCoreQty > 0, [gsmCoreQty]);
@@ -778,135 +720,21 @@ export default function MatrixAgent({ currentUser }) {
 
   const isCadeauOrSansPromo = useMemo(() => {
     const p = (selectedPromoLabel || "").toLowerCase();
-    return p.includes("cadeaux") || p.includes("sans promo");
+    return p.includes("Internet Ultra_Fiber	Ultra_Fiber") || p.includes("sans promo");
   }, [selectedPromoLabel]);
 
-  const tvPackKeys = useMemo(() => new Set(["flex_easy"]), []);
-  const internetPackKeys = useMemo(
-    () => new Set(["packflex", "flex_xs", "Giga_Fiber", "Ultra_Fiber"]),
-    []
-  );
 
-  const hasTvPackSelected = useMemo(() => {
-    if (packChoiceKey) return tvPackKeys.has(packChoiceKey);
-    const packSec = sections.find((s) => s.key === "pack_type");
-    if (!packSec) return false;
-    const secKey = packSec.key;
-    const ids = selectedMulti[secKey] || [];
-    return ids.some((id) => tvPackKeys.has(choiceById.get(Number(id))?.key));
-  }, [tvPackKeys, packChoiceKey, sections, selectedMulti, choiceById]);
-
-  const hasInternetPackSelected = useMemo(() => {
-    if (packChoiceKey) return internetPackKeys.has(packChoiceKey);
-    const packSec = sections.find((s) => s.key === "pack_type");
-    if (!packSec) return false;
-    const secKey = packSec.key;
-    const ids = selectedMulti[secKey] || [];
-    return ids.some((id) => internetPackKeys.has(choiceById.get(Number(id))?.key));
-  }, [internetPackKeys, packChoiceKey, sections, selectedMulti, choiceById]);
-
-
-
-  const promoSelectedIds = useMemo(() => {
-    if (!promoSection) return [];
-    const secKey = promoSection.key;
-    const secType = promoSection.type || "single";
-    if (secType === "multi") {
-      return (selectedMulti[secKey] || []).map((id) => Number(id));
-    }
-    return selectedSingle[secKey] ? [Number(selectedSingle[secKey])] : [];
-  }, [promoSection, selectedMulti, selectedSingle]);
-
-  const promoSelectedLabels = useMemo(() => {
-    return promoSelectedIds
-      .map((id) => choiceById.get(id)?.label || "")
-      .filter(Boolean);
-  }, [promoSelectedIds, choiceById]);
 
   const isPromo6Mois = useMemo(() => {
-    return promoSelectedLabels.some((label) => {
-      const p = label.toLowerCase();
-      return p.includes("6 mois") || p.includes("6mois");
-    });
-  }, [promoSelectedLabels]);
-
-  const isPromo12Mois = useMemo(() => {
-    return promoSelectedLabels.some((label) => {
-      const p = label.toLowerCase();
-      return p.includes("12 mois") || p.includes("12mois");
-    });
-  }, [promoSelectedLabels]);
-
+    const p = (selectedPromoLabel || "").toLowerCase();
+    return p.includes("6 mois") || p.includes("6mois");
+  }, [selectedPromoLabel]);
 
   // Selection handlers
   const toggleMulti = (sectionKey, choiceId) => {
     setSelectedMulti((prev) => {
       const cur = Array.isArray(prev[sectionKey]) ? prev[sectionKey] : [];
       const exists = cur.includes(choiceId);
-
-      if (promoSection && sectionKey === promoSection.key && !exists) {
-        const nextChoice = choiceById.get(Number(choiceId));
-        const label = (nextChoice?.label || "").toLowerCase();
-        const is6 = label.includes("6 mois") || label.includes("6mois");
-        const is12 = label.includes("12 mois") || label.includes("12mois");
-        const isCadeaux = label.includes("cadeaux");
-        const isSansPromo = label.includes("sans promo");
-        const isMobileFlex = nextChoice?.key === "Promotion_Mobile_Flex";
-
-        const hasCadeaux = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
-        const hasSansPromo = promoSelectedLabels.some((l) => l.toLowerCase().includes("sans promo"));
-        const hasMobileFlex = promoSelectedIds.some(
-          (id) => choiceById.get(id)?.key === "Promotion_Mobile_Flex"
-        );
-
-        if (is6 && isPromo12Mois) {
-          setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
-          return cur;
-        }
-        if (is12 && isPromo6Mois) {
-          setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
-          return cur;
-        }
-        if ((isCadeaux || isSansPromo) && hasMobileFlex) {
-          setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
-          return cur;
-        }
-        if (isMobileFlex && (hasCadeaux || hasSansPromo)) {
-          setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
-          return cur;
-        }
-
-        // Promotions are single-choice, except allow Mobile Flex as extra with 6 or 12 months.
-        const otherIds = cur.filter((id) => {
-          const c = choiceById.get(Number(id));
-          const l = (c?.label || "").toLowerCase();
-          const otherIs6 = l.includes("6 mois") || l.includes("6mois");
-          const otherIs12 = l.includes("12 mois") || l.includes("12mois");
-          const otherIsMobileFlex = c?.key === "Promotion_Mobile_Flex";
-          if (isMobileFlex) {
-            return otherIs6 || otherIs12;
-          }
-          if (is6 || is12) {
-            return otherIsMobileFlex;
-          }
-          return false;
-        });
-        return { ...prev, [sectionKey]: [...otherIds, choiceId] };
-      }
-
-      if (sectionKey === "pack_type") {
-        const choice = choiceById.get(Number(choiceId));
-        const isInternetPack = choice && internetPackKeys.has(choice.key);
-        if (isInternetPack && !exists) {
-          // Remplacer tout autre choix Internet par le nouveau
-          const filtered = cur.filter((id) => {
-            const c = choiceById.get(Number(id));
-            return !(c && internetPackKeys.has(c.key));
-          });
-          return { ...prev, [sectionKey]: [...filtered, choiceId] };
-        }
-      }
-
       const next = exists ? cur.filter((x) => x !== choiceId) : [...cur, choiceId];
       return { ...prev, [sectionKey]: next };
     });
@@ -920,7 +748,6 @@ export default function MatrixAgent({ currentUser }) {
     setSelectedSingle({});
     setSelectedMulti({});
     setGsmQty({});
-    setChoiceQty({});
     setOk("");
     setErr("");
   };
@@ -937,31 +764,18 @@ export default function MatrixAgent({ currentUser }) {
       const type = sec.type || "single";
 
       if (type === "multi") {
-        const baseIds = selectedMulti[sec.key] || [];
-        const qtyIds = (sec.choices || [])
-          .filter((c) => c.allowQty && Number(choiceQty[c.id] || 0) > 0)
-          .map((c) => c.id);
-        const arr = Array.from(new Set([...baseIds, ...qtyIds]));
+        const arr = selectedMulti[sec.key] || [];
         arr.forEach((id) => {
           const c = choiceById.get(Number(id));
           if (!c) return;
-          const qty = c.allowQty ? Number(choiceQty[c.id] || 0) : 1;
-          if (c.allowQty && qty === 0) return;
-          items.push({ secTitle, label: c.label, y1: c.priceY1, y2: c.priceY2, qty });
+          items.push({ secTitle, label: c.label, y1: c.priceY1, y2: c.priceY2, qty: 1 });
         });
       } else {
-        const baseId = selectedSingle[sec.key];
-        const qtyIds = (sec.choices || [])
-          .filter((c) => c.allowQty && Number(choiceQty[c.id] || 0) > 0)
-          .map((c) => c.id);
-        const ids = Array.from(new Set([baseId, ...qtyIds].filter(Boolean)));
-        ids.forEach((id) => {
-          const c = choiceById.get(Number(id));
-          if (!c) return;
-          const qty = c.allowQty ? Number(choiceQty[c.id] || 0) : 1;
-          if (c.allowQty && qty === 0) return;
-          items.push({ secTitle, label: c.label, y1: c.priceY1, y2: c.priceY2, qty });
-        });
+        const id = selectedSingle[sec.key];
+        if (!id) continue;
+        const c = choiceById.get(Number(id));
+        if (!c) continue;
+        items.push({ secTitle, label: c.label, y1: c.priceY1, y2: c.priceY2, qty: 1 });
       }
     }
 
@@ -988,22 +802,7 @@ export default function MatrixAgent({ currentUser }) {
       });
 
     return items;
-  }, [sections, selectedSingle, selectedMulti, gsmQty, choiceQty, choiceById, isGsmSection]);
-
-  const summaryFlexDiscountByIndex = useMemo(() => {
-    if (gsmFlexDiscount <= 0 || summaryItems.length === 0) return new Map();
-    const flexIndexes = [];
-    summaryItems.forEach((it, idx) => {
-      const sec = (it.secTitle || "").toLowerCase();
-      const isGsm = sec.includes("gsm");
-      const isSolo = sec.includes("solo");
-      if (isGsm && !isSolo) flexIndexes.push(idx);
-    });
-    if (!flexIndexes.length) return new Map();
-    const map = new Map();
-    map.set(flexIndexes[flexIndexes.length - 1], gsmFlexDiscount);
-    return map;
-  }, [summaryItems, gsmFlexDiscount]);
+  }, [sections, selectedSingle, selectedMulti, gsmQty, choiceById, isGsmSection]);
 
   // Required + format
   const requiredMissing = useMemo(() => {
@@ -1023,32 +822,6 @@ export default function MatrixAgent({ currentUser }) {
   const hasAnySelection = useMemo(() => {
     return selectedIds.length > 0 || gsmTotalQty > 0;
   }, [selectedIds, gsmTotalQty]);
-
-  const isDataPhoneSection = useCallback((section) => {
-    const key = String(section?.key || "").toLowerCase();
-    const title = String(section?.title || "").toLowerCase();
-    return (
-      key.includes("data_phone") ||
-      key.includes("dataphone") ||
-      title.includes("data phone") ||
-      title.includes("dataphone")
-    );
-  }, []);
-
-  const isDataPhoneSelected = useMemo(() => {
-    const dataPhoneIds = [];
-    sections.forEach((sec) => {
-      if (!isDataPhoneSection(sec)) return;
-      (sec.choices || []).forEach((c) => dataPhoneIds.push(c.id));
-    });
-    if (!dataPhoneIds.length) return false;
-    return dataPhoneIds.some((id) => {
-      if (gsmQty[id]) return true;
-      if (choiceQty[id]) return Number(choiceQty[id] || 0) > 0;
-      if (selectedIds.includes(id)) return true;
-      return false;
-    });
-  }, [sections, isDataPhoneSection, gsmQty, choiceQty, selectedIds]);
 
   const canSend = useMemo(() => {
     if (requiredMissing.length > 0) return false;
@@ -1085,49 +858,12 @@ export default function MatrixAgent({ currentUser }) {
       return;
     }
 
-    // ✅ VALIDATION: Si promo = "Cadeaux", GSM Flex + Internet + TV requis
+    // ✅ VALIDATION: Si promo = "Cadeaux", au moins un GSM doit être sélectionné
     if (promoSection && hasPromoSelected()) {
-      if (isCadeauxSelected) {
-        if (gsmFlexQtyForDiscount === 0) {
-          setErr("⚠️ Pour une promotion Cadeaux, sélectionnez au moins un GSM Flex.");
-          return;
-        }
-        if (!hasTvPackSelected || !hasInternetPackSelected) {
-          setErr("⚠️ Pour une promotion Cadeaux, sélectionnez 1 TV Proximus et 1 Internet dans Pack Flex.");
-          return;
-        }
-      }
-      const isPremierMobileFlex = (() => {
-        if (!promoSection) return false;
-        const secKey = promoSection.key;
-        const secType = promoSection.type || "single";
-        const ids =
-          secType === "multi"
-            ? (selectedMulti[secKey] || []).map((id) => Number(id))
-            : selectedSingle[secKey]
-            ? [Number(selectedSingle[secKey])]
-            : [];
-        return ids.some((id) => choiceById.get(id)?.key === "Promotion_Mobile_Flex");
-      })();
-      const hasSansPromoSelected = promoSelectedLabels.some((l) => l.toLowerCase().includes("sans promo"));
-      const hasCadeauxSelected = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
-      if (isPremierMobileFlex && (hasCadeauxSelected || hasSansPromoSelected)) {
-        setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
+      if (isCadeauxSelected && gsmCoreQty === 0) {
+        setErr("⚠️ Vous devez sélectionner au moins un GSM pour une promotion Cadeaux.");
         return;
       }
-      if (isPromo6Mois && isPromo12Mois) {
-        setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
-        return;
-      }
-      if (isPremierMobileFlex && gsmFlexQtyForDiscount === 0) {
-        setErr("⚠️ Pour la promo Premier Mobile Flex, sélectionnez au moins un GSM Flex.");
-        return;
-      }
-    }
-
-    if (isDataPhoneSelected && !dataPhoneNote.trim()) {
-      setErr("⚠️ Merci de remplir le commentaire pour Data Phone.");
-      return;
     }
 
     setSending(true);
@@ -1135,14 +871,10 @@ export default function MatrixAgent({ currentUser }) {
       const gsmItems = Object.entries(gsmQty)
         .filter(([_, qty]) => Number(qty) > 0)
         .map(([choiceId, qty]) => ({ choiceId: Number(choiceId), qty: Number(qty) }));
-      const qtyItems = Object.entries(choiceQty)
-        .filter(([_, qty]) => Number(qty) > 0)
-        .map(([choiceId, qty]) => ({ choiceId: Number(choiceId), qty: Number(qty) }));
 
       const gsmChoiceIds = gsmItems.map((item) => item.choiceId);
-      const qtyChoiceIds = qtyItems.map((item) => item.choiceId);
       const allChoiceIds = Array.from(
-        new Set([...(selectedIds || []), ...gsmChoiceIds, ...qtyChoiceIds])
+        new Set([...(selectedIds || []), ...gsmChoiceIds])
       ).filter(Boolean);
 
       const payload = {
@@ -1153,8 +885,6 @@ export default function MatrixAgent({ currentUser }) {
 
         choiceIds: allChoiceIds,
         gsmItems,
-        qtyItems,
-        dataPhoneNote: dataPhoneNote.trim(),
         status: "TO_SEND",
         packTypeLabel: computedPackType,
         alertMessage: computedAlert,
@@ -1176,7 +906,6 @@ export default function MatrixAgent({ currentUser }) {
         resetSelection();
         setClient({ civility: "", lastName: "", firstName: "", email: "", phone: "" });
         setClientErrors({ email: "", phone: "" });
-        setDataPhoneNote("");
         setOk("");
         setErr("");
         setSending(false);
@@ -1190,8 +919,7 @@ export default function MatrixAgent({ currentUser }) {
 
   return (
     <div style={styles.page}>
-      <div style={styles.zoomWrap}>
-        <div style={styles.shell}>
+      <div style={styles.shell}>
         <div style={styles.header}>
           <div style={styles.titleRow}>
             <h1 style={styles.h1}>Matrice Proximus</h1>
@@ -1216,7 +944,7 @@ export default function MatrixAgent({ currentUser }) {
                 <option value="">-- Choisir --</option>
                 <option value="Monsieur">Monsieur</option>
                 <option value="Madame">Madame</option>
-                <option value="Pr">Pr</option>
+                <option value="Pro">Pro</option>
               </select>
             </div>
             <div style={styles.field}>
@@ -1375,12 +1103,7 @@ export default function MatrixAgent({ currentUser }) {
                         ? (selectedMulti[activeSection.key] || []).includes(c.id)
                         : Number(selectedSingle[activeSection.key] || 0) === Number(c.id);
 
-                    const isQtyChoice = !showQty && c.allowQty;
-                    const qty = showQty
-                      ? Number(gsmQty[c.id] || 0)
-                      : isQtyChoice
-                      ? Number(choiceQty[c.id] || 0)
-                      : 0;
+                    const qty = Number(gsmQty[c.id] || 0);
                     const gsmChecked = qty > 0;
 
                     // Logic to see if "Parent" is visually selected (itself OR one of its children)
@@ -1390,54 +1113,24 @@ export default function MatrixAgent({ currentUser }) {
                     // Current selected ID in this section
                     const currentSelectedId = Number(selectedSingle[activeSection.key] || 0);
 
-                    const selectedList = secType === "multi" ? (selectedMulti[activeSection.key] || []) : [];
                     // Is this parent selected directly?
-                    const isSelfSelected = secType === "multi"
-                      ? selectedList.includes(c.id)
-                      : currentSelectedId === c.id;
+                    const isSelfSelected = currentSelectedId === c.id;
                     // Is one of its children selected?
-                    const selectedChild = secType === "multi"
-                      ? myChildren.find((child) => selectedList.includes(child.id))
-                      : myChildren.find((child) => child.id === currentSelectedId);
-                    const isChildSelected = !!selectedChild;
+                    const isChildSelected = myChildren.some(child => child.id === currentSelectedId);
 
                     // Visual state: Parent looks selected if itself/child is active
                     const isParentVisuallySelected = isSelfSelected || isChildSelected;
 
                     // Which child is active?
-                    const activeChildId = selectedChild ? selectedChild.id : "";
+                    const activeChildId = isChildSelected ? currentSelectedId : "";
 
-                    const selectedForCard = showQty || isQtyChoice
-                      ? gsmChecked
-                      : secType === "multi"
-                      ? (hasChildren ? isParentVisuallySelected : isSelectedNonGsm)
-                      : isParentVisuallySelected;
+                    const selectedForCard = showQty ? gsmChecked : isParentVisuallySelected;
 
                     const click = () => {
                       if (!showQty) {
-                        if (isQtyChoice) {
-                          setChoiceQuantity(c.id, qty > 0 ? 0 : 1, activeSection.key, secType);
-                          return;
-                        }
                         if (secType === "multi") {
                           toggleMulti(activeSection.key, c.id);
                         } else {
-                          if (
-                            promoSection &&
-                            activeSection.key === promoSection.key &&
-                            c.key === "Promotion_Mobile_Flex"
-                          ) {
-                            const hasSansPromoSelected = promoSelectedLabels.some((l) =>
-                              l.toLowerCase().includes("sans promo")
-                            );
-                            const hasCadeauxSelected = promoSelectedLabels.some((l) =>
-                              l.toLowerCase().includes("cadeaux")
-                            );
-                            if (hasCadeauxSelected || hasSansPromoSelected) {
-                              setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
-                              return;
-                            }
-                          }
                           // If has children, resetting to Parent ID
                           setSingle(activeSection.key, c.id);
                         }
@@ -1458,10 +1151,7 @@ export default function MatrixAgent({ currentUser }) {
                     const canDec = qty > 0;
                     const isSoloSection = isGsmSoloSection(activeSection.key);
                     const isOptSection = isGsmOptSection(activeSection.key);
-                    const maxQty = isQtyChoice ? Number(c.maxQty || 0) : 0;
-                    const canInc = isQtyChoice
-                      ? (maxQty ? qty < maxQty : true)
-                      : isSoloSection
+                    const canInc = isSoloSection
                       ? true
                       : isOptSection
                       ? gsmTotals.optQty < GSM_FLEX_MAX
@@ -1487,18 +1177,14 @@ export default function MatrixAgent({ currentUser }) {
                           </p>
 
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            {showQty || isQtyChoice ? (
+                            {showQty ? (
                               <div
                                 style={styles.qtyWrap}
                                 onClick={(e) => e.stopPropagation()}
                                 title={
                                   isSoloSection
                                     ? `Solo: ${qty} (illimité)`
-                                    : showQty
-                                    ? `Flex: ${gsmTotals.flexQty}/${GSM_FLEX_MAX}`
-                                    : c.maxQty
-                                    ? `Max: ${c.maxQty}`
-                                    : "Quantité"
+                                    : `Flex: ${gsmTotals.flexQty}/${GSM_FLEX_MAX}`
                                 }
                               >
                                 <button
@@ -1507,11 +1193,7 @@ export default function MatrixAgent({ currentUser }) {
                                     ...styles.qtyBtn,
                                     ...(canDec ? {} : styles.qtyBtnDisabled),
                                   }}
-                                  onClick={() =>
-                                    showQty
-                                      ? decGsm(c.id)
-                                      : setChoiceQuantity(c.id, qty - 1, activeSection.key, secType)
-                                  }
+                                  onClick={() => decGsm(c.id)}
                                   disabled={!canDec}
                                 >
                                   -
@@ -1525,11 +1207,7 @@ export default function MatrixAgent({ currentUser }) {
                                     ...styles.qtyBtn,
                                     ...(canInc ? {} : styles.qtyBtnDisabled),
                                   }}
-                                  onClick={() =>
-                                    showQty
-                                      ? incGsm(c.id)
-                                      : setChoiceQuantity(c.id, qty + 1, activeSection.key, secType)
-                                  }
+                                  onClick={() => incGsm(c.id)}
                                   disabled={!canInc}
                                 >
                                   +
@@ -1542,30 +1220,6 @@ export default function MatrixAgent({ currentUser }) {
                             </div>
                           </div>
                         </div>
-                        {isDataPhoneSection(activeSection) && (selectedForCard || qty > 0) ? (
-                          <div style={{ marginTop: 8 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#cbd5f5", marginBottom: 4 }}>
-                              📝 Commentaire obligatoire
-                            </div>
-                            <textarea
-                              style={{
-                                width: "100%",
-                                padding: "8px 10px",
-                                borderRadius: 8,
-                                border: "1px solid rgba(255,255,255,0.2)",
-                                background: "rgba(0,0,0,0.3)",
-                                color: "white",
-                                fontSize: 13,
-                                minHeight: 70,
-                                outline: "none"
-                              }}
-                              value={dataPhoneNote}
-                              onChange={(e) => setDataPhoneNote(e.target.value)}
-                              placeholder="Ajouter un commentaire..."
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          </div>
-                        ) : null}
                         {/* DROPDOWN SUB-CHOICE */}
                         {hasChildren && isParentVisuallySelected && (
                           <div
@@ -1589,17 +1243,7 @@ export default function MatrixAgent({ currentUser }) {
                               value={activeChildId}
                               onChange={(e) => {
                                 const val = Number(e.target.value);
-                                if (secType === "multi") {
-                                  setSelectedMulti((prev) => {
-                                    const cur = Array.isArray(prev[activeSection.key]) ? prev[activeSection.key] : [];
-                                    const childIds = myChildren.map((child) => child.id);
-                                    let next = cur.filter((id) => id !== c.id && !childIds.includes(id));
-                                    if (val) next = [...next, val];
-                                    return { ...prev, [activeSection.key]: next };
-                                  });
-                                } else {
-                                  setSingle(activeSection.key, val ? val : c.id);
-                                }
+                                setSingle(activeSection.key, val ? val : c.id);
                               }}
                             >
                               <option value="">-- Aucun cadeau --</option>
@@ -1646,16 +1290,7 @@ export default function MatrixAgent({ currentUser }) {
                       </div>
                       <div style={{ textAlign: "right", opacity: 0.9 }}>
                         <div>Y1 {money(Number(it.y1 || 0) * Number(it.qty || 1))}</div>
-                        <div>
-                          Y2{" "}
-                          {money(
-                            Math.max(
-                              0,
-                              Number(it.y2 || 0) * Number(it.qty || 1) -
-                                (summaryFlexDiscountByIndex.get(idx) || 0)
-                            )
-                          )}
-                        </div>
+                        <div>Y2 {money(Number(it.y2 || 0) * Number(it.qty || 1))}</div>
                       </div>
                     </div>
                   ))}
@@ -1708,16 +1343,6 @@ export default function MatrixAgent({ currentUser }) {
                   ) : null}
                 </div>
 
-                <div style={styles.card}>
-                  <p style={styles.cardTitle}>⚠️ Alerte (rappel)</p>
-                  <div style={err ? styles.alertBoxError : styles.alertBox}>
-                    {err || computedAlert}
-                  </div>
-                  <div style={{ ...styles.tiny, marginTop: 4 }}>
-                    {err ? "❌ Erreur de validation" : "✅ Règles automatiques"}
-                  </div>
-                </div>
-
                 <button
                   style={styles.btn("primary")}
                   onClick={sendToBackOffice}
@@ -1767,7 +1392,6 @@ export default function MatrixAgent({ currentUser }) {
 
         <div style={{ ...styles.tiny, opacity: 0.6, marginTop: 12, textAlign: "center" }}>
           💻 Backend: <span style={{ fontWeight: 900 }}>/api/matrix/runtime</span>
-        </div>
         </div>
       </div>
 
