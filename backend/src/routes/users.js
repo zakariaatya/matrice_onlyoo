@@ -14,43 +14,35 @@ router.get('/', requireAuth, requireRole('ADMIN'), async (req, res) => {
 });
 
 router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
-  const { identifier, email, password, name, role } = req.body;
+  const { identifier, password, name, role } = req.body;
 
-  // Accepter 'identifier' OU 'email', et générer identifier si email est fourni
-  let finalIdentifier = identifier;
-  let finalEmail = email;
-  
-  if (!finalIdentifier && !finalEmail) {
-    return res.status(400).json({ error: "identifier ou email est requis" });
-  }
-  
-  // Si email est fourni mais pas identifier, extraire identifier de email
-  if (!finalIdentifier && finalEmail) {
-    finalIdentifier = finalEmail.split('@')[0];
+  if (!identifier) {
+    return res.status(400).json({ error: "identifier requis" });
   }
 
-  if (!password || !name || !role)
+  if (!password || !name || !role) {
     return res.status(400).json({ error: "password, name, role requis" });
+  }
 
-  // Vérifier si identifier ou email existe déjà
-  const existing = await prisma.user.findUnique({ where: { identifier: finalIdentifier } });
+  const existing = await prisma.user.findUnique({ where: { identifier } });
   if (existing) return res.status(409).json({ error: "Cet identifiant est déjà utilisé" });
 
-  if (finalEmail) {
-    const existingEmail = await prisma.user.findUnique({ where: { email: finalEmail } });
-    if (existingEmail) return res.status(409).json({ error: "Cet email est déjà utilisé" });
+  const generatedEmail = `${identifier}@eol-ict.local`;
+  const existingEmail = await prisma.user.findUnique({ where: { email: generatedEmail } });
+  if (existingEmail) {
+    return res.status(409).json({ error: "Email auto-généré déjà utilisé" });
   }
 
   const hashed = await bcrypt.hash(password, 10);
 
   const user = await prisma.user.create({
-    data: { 
-      identifier: finalIdentifier, 
-      email: finalEmail || `${finalIdentifier}@eol-ict.local`,
-      password: hashed, 
-      name, 
-      role, 
-      active: true 
+    data: {
+      identifier,
+      email: generatedEmail,
+      password: hashed,
+      name,
+      role,
+      active: true,
     },
     select: { id: true, identifier: true, email: true, name: true, role: true, active: true, createdAt: true },
   });
@@ -61,12 +53,26 @@ router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
 
 router.put("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const id = Number(req.params.id);
-  const { name, active } = req.body; // ✅ role supprimé ici
+  const { name, active, identifier, password } = req.body;
+
+  if (identifier) {
+    const existing = await prisma.user.findUnique({ where: { identifier } });
+    if (existing && existing.id !== id) {
+      return res.status(409).json({ error: "Cet identifiant est déjà utilisé" });
+    }
+  }
+
+  let hashedPassword;
+  if (password) {
+    hashedPassword = await bcrypt.hash(password, 10);
+  }
 
   const user = await prisma.user.update({
     where: { id },
     data: {
       ...(name !== undefined ? { name } : {}),
+      ...(identifier !== undefined ? { identifier } : {}),
+      ...(hashedPassword ? { password: hashedPassword } : {}),
       ...(active !== undefined ? { active: Boolean(active) } : {}),
     },
     select: { id: true, identifier: true, email: true, name: true, role: true, active: true, createdAt: true },

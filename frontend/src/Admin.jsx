@@ -7,6 +7,12 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    identifier: "",
+    password: "",
+  });
 
   const [form, setForm] = useState({
     name: "",
@@ -61,6 +67,39 @@ const deleteUser = async (id) => {
     );
   }
 };
+
+  const startEdit = (u) => {
+    setEditingId(u.id);
+    setEditForm({
+      name: u.name || "",
+      identifier: u.identifier || "",
+      password: "",
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ name: "", identifier: "", password: "" });
+  };
+
+  const saveEdit = async () => {
+    setErr("");
+    setOk("");
+    try {
+      const payload = {
+        name: editForm.name,
+        identifier: editForm.identifier,
+      };
+      if (editForm.password) payload.password = editForm.password;
+
+      const { data } = await api.put(`/users/${editingId}`, payload);
+      setUsers((prev) => prev.map((u) => (u.id === editingId ? data.user : u)));
+      setOk("✅ Utilisateur modifié");
+      cancelEdit();
+    } catch (e) {
+      setErr(e?.response?.data?.error || e?.response?.data?.message || e?.message || "Erreur modification user");
+    }
+  };
 
 
   return (
@@ -127,6 +166,45 @@ const deleteUser = async (id) => {
       <div style={{ background: "white", border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
         <div style={{ fontWeight: 800, marginBottom: 10 }}>👤 Liste des utilisateurs</div>
 
+        {editingId && (
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, marginBottom: 12, background: "#f9fafb" }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>✏️ Modifier l’utilisateur</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 10 }}>
+              <input
+                value={editForm.name}
+                onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Nom"
+                style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+              />
+              <input
+                value={editForm.identifier}
+                onChange={(e) => setEditForm((p) => ({ ...p, identifier: e.target.value }))}
+                placeholder="Identifiant"
+                style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+              />
+              <input
+                type="password"
+                value={editForm.password}
+                onChange={(e) => setEditForm((p) => ({ ...p, password: e.target.value }))}
+                placeholder="Nouveau mot de passe (optionnel)"
+                style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+              />
+              <button
+                onClick={saveEdit}
+                style={{ padding: "10px 12px", borderRadius: 10, border: "none", background: "#16a34a", color: "white", fontWeight: 800 }}
+              >
+                Enregistrer
+              </button>
+              <button
+                onClick={cancelEdit}
+                style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", background: "white", color: "#111827", fontWeight: 700 }}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
@@ -153,6 +231,19 @@ const deleteUser = async (id) => {
                 </td>
                 <td style={{ padding: 10 }}>
                   <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => startEdit(u)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        border: "none",
+                        background: "#2563eb",
+                        color: "white",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Modifier
+                    </button>
                     <button
                       onClick={() => deleteUser(u.id)}
                       style={{
