@@ -116,7 +116,7 @@ function Login({ onLoggedIn }) {
             </Button>
           </div>
 
-          <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl border border-purple-100">
+          {/* <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl border border-purple-100">
             <div className="text-sm font-bold text-gray-700 mb-2">📝 Comptes de test disponibles:</div>
             <div className="space-y-1 text-sm text-gray-600">
               <div className="flex items-center gap-2">
@@ -132,7 +132,7 @@ function Login({ onLoggedIn }) {
                 <span className="font-bold text-red-600">⚙️ Admin:</span> admin / admin123
               </div>
             </div>
-          </div>
+          </div> */}
         </Card>
 
         <div className="text-center text-white/70 text-sm">

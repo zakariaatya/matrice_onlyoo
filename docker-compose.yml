@@ -10,5 +10,45 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d eol_matrix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/eol_matrix
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npx prisma generate && npm run dev"
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:4000/api
+      VITE_API_URL: http://localhost:4000/api
+      HOST: 0.0.0.0
+      PORT: 3000
+      WDS_SOCKET_PORT: 0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm start"
 volumes:
   pgdata:
