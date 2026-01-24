@@ -1765,9 +1765,9 @@ export default function MatrixAgent({ currentUser }) {
           </div>
         </div>
 
-        <div style={{ ...styles.tiny, opacity: 0.6, marginTop: 12, textAlign: "center" }}>
+        {/* <div style={{ ...styles.tiny, opacity: 0.6, marginTop: 12, textAlign: "center" }}>
           💻 Backend: <span style={{ fontWeight: 900 }}>/api/matrix/runtime</span>
-        </div>
+        </div> */}
         </div>
       </div>
 
