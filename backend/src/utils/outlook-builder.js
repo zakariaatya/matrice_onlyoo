@@ -1,9 +1,9 @@
-const MONEY = (n) => Number(n || 0).toFixed(2);
+const MONEY = (n) => Number(n || 0).toFixed(2).replace(".", ",");
 
 /**
 * Génère un HTML email compatible Outlook
 */
-function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyooSrc, logoProximusSrc }) {
+function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyooSrc, logoProximusSrc, dataPhoneNote }) {
 // Vérifier si GSM ou Pack
 const hasGsm = choices.some(c =>
 c.section?.title?.toLowerCase()?.includes("gsm") ||
@@ -24,8 +24,59 @@ title = "Contrat de mise en service du GSM Proximus";
 title = "Contrat de mise en service du Pack Proximus";
 }
 
+const isPromoSection = (c) => {
+  const title = (c.section?.title || "").toLowerCase();
+  const key = (c.section?.key || "").toLowerCase();
+  return title.includes("promotion") || key.includes("promotion");
+};
+
+const isCadeauxChoice = (c) => {
+  const label = (c.label || "").toLowerCase();
+  const parentLabel = (c.parent?.label || "").toLowerCase();
+  return label.includes("cadeaux") || parentLabel.includes("cadeaux");
+};
+
+const isDataPhoneChoice = (c) => {
+  const key = String(c.key || "").trim().toLowerCase();
+  const secKey = String(c.section?.key || "").trim().toLowerCase();
+  const secTitle = String(c.section?.title || "").trim().toLowerCase();
+  return (
+    key.startsWith("data_phone") ||
+    secKey.includes("data_phone") ||
+    secKey.includes("dataphone") ||
+    secTitle.includes("data phone") ||
+    secTitle.includes("dataphone")
+  );
+};
+const isInstallationChoice = (c) => {
+  const key = String(c.key || "").trim().toLowerCase();
+  const label = String(c.label || "").trim().toLowerCase();
+  const secKey = String(c.section?.key || "").trim().toLowerCase();
+  const secTitle = String(c.section?.title || "").trim().toLowerCase();
+  return (
+    key === "installation_proximus" ||
+    label.includes("installation") ||
+    secKey.includes("installation") ||
+    secTitle.includes("installation")
+  );
+};
+const dataPhoneChoices = choices.filter((c) => isDataPhoneChoice(c));
+const installationChoices = choices.filter((c) => isInstallationChoice(c));
+const displayChoices = choices.filter(
+  (c) =>
+    (!isPromoSection(c) || isCadeauxChoice(c)) &&
+    !isInstallationChoice(c)
+);
+const cadeauxChoices = displayChoices.filter((c) => isCadeauxChoice(c));
+const mainChoices = displayChoices.filter((c) => !isCadeauxChoice(c));
+
+const formatChoiceLabel = (c) => {
+  const qty = Number(c.qty || 1);
+  return qty > 1 ? `${c.label} x${qty}` : c.label;
+};
+
 // Construire le sujet avec les offres
-const choicesShort = choices.map(c => c.label).join(" + ");
+const choicesShort = displayChoices.map((c) => formatChoiceLabel(c)).join(" + ");
 
 // Détection de la durée promo (6 ou 12 mois) et logique Prix
 const promoChoice = choices.find(c => c.section?.title?.toLowerCase().includes("promotion") ||
@@ -75,14 +126,17 @@ const subject = `Offre speciale Onlyoo - ${choicesShort}`;
 const colors = ["#0066CC", "#E65100", "#2E7D32", "#7B1FA2", "#C62828", "#00838F"];
 
 // Tableau des choix avec couleurs
-const choicesLines = choices.map((c, index) => {
+const choicesLines = mainChoices.map((c, index) => {
 const color = colors[index % colors.length];
 const desc = c.description ? `<br><span
     style="font-size: 12px; color: #666666; font-style: italic;">${c.description}</span>` : "";
+const note = isDataPhoneChoice(c) && dataPhoneNote
+  ? `<br><span style="font-size: 12px; color: #333333;">${String(dataPhoneNote).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`
+  : "";
 return `<tr>
     <td
         style="padding: 12px 15px; border-left: 4px solid ${color}; border-bottom: 1px solid #e0e0e0; background-color: #fafafa; font-size: 15px; color: #333333; font-family: Arial, sans-serif;">
-        <strong style="color: ${color}; font-size: 16px;">${c.label}</strong>${desc}
+        <strong style="color: ${color}; font-size: 16px;">${formatChoiceLabel(c)}</strong>${desc}${note}
     </td>
 </tr>`;
 }).join("");
@@ -92,7 +146,7 @@ const mailtoBody = isStablePrice
   ? `Je confirme mon accord pour votre offre speciale du pack proximus, au tarif de ${MONEY(quote.totalY2)} euro/mois, ${quote.customerName}.`
   : `Je confirme mon accord pour votre offre speciale du pack proximus, au tarif de ${MONEY(quote.totalY1)} euro/mois pendant ${duration} mois. Suivi d'un tarif mensuel de ${MONEY(quote.totalY2)} euro/mois, ${quote.customerName}.`;
 
-const mailtoSubject = `Contrat de mise en service Pack Proximus - conseiller:  ${agent?.name || ""}`;
+const mailtoSubject = `Contrat de mise en service - conseiller:  ${agent?.name || ""}`;
 const mailtoTo = String(boEmail || "").trim();
 const mailtoLink = `mailto:${mailtoTo}?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`;
 
@@ -173,10 +227,11 @@ const html = `
                                 <tr>
                                     <td style="padding: 0;">
                                         <table width="100%" border="0" cellpadding="0" cellspacing="0">
-                                            ${choices.map((c) => {
-                                            const isCadeauxChoice = (c.label || "").toLowerCase().includes("cadeaux") ||
-                                              (c.parent?.label || "").toLowerCase().includes("cadeaux");
-                                            const labelColor = isCadeauxChoice ? "#CC0000" : "#000000";
+                                            ${mainChoices.map((c) => {
+                                            const isCadeauxChoiceItem = isCadeauxChoice(c);
+                                            const note = isDataPhoneChoice(c) && dataPhoneNote
+                                              ? `<br><span style="font-size: 13px; color: #333333;">${String(dataPhoneNote).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`
+                                              : "";
                                             const desc = c.description ? `<br><span
                                                 style="font-size: 14px; color: #666666; font-style: italic;">${c.description}</span>`
                                             : "";
@@ -184,7 +239,7 @@ const html = `
                                                 <td
                                                     style="padding: 10px 0; border-bottom: 1px solid #eeeeee; font-size: 16px; color: #000000; font-family: Arial, sans-serif;">
                                                     <strong
-                                                        style="color: ${labelColor}; font-size: 17px;">${c.label}</strong>${desc}
+                                                        style="color: ${isCadeauxChoiceItem ? "#CC0000" : "#000000"}; font-size: 17px;">${formatChoiceLabel(c)}</strong>${desc}${note}
                                                 </td>
                                             </tr>`;
                                             }).join("")}
@@ -202,6 +257,33 @@ const html = `
                                     </td>
                                 </tr>
                             </table>
+
+                            ${cadeauxChoices.length ? `
+                            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-bottom: 25px;">
+                              <tr>
+                                <td style="padding: 0;">
+                                  <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                                    ${cadeauxChoices.map((c) => {
+                                    const desc = c.description ? `<br><span
+                                        style="font-size: 14px; color: #666666; font-style: italic;">${c.description}</span>`
+                                    : "";
+                                    return `<tr>
+                                        <td
+                                            style="padding: 10px 0; border-bottom: 1px solid #eeeeee; font-size: 16px; color: #000000; font-family: Arial, sans-serif;">
+                                            <strong
+                                                style="color: #CC0000; font-size: 17px;">${formatChoiceLabel(c)}</strong>${desc}
+                                        </td>
+                                    </tr>`;
+                                    }).join("")}
+                                  </table>
+                                </td>
+                              </tr>
+                            </table>` : ""}
+
+                            ${installationChoices.length ? `
+                            <div style="margin-bottom: 14px; font-size: 15px; font-weight: bold; color: #CC0000;">
+                              ${installationChoices.map((c) => formatChoiceLabel(c)).join(" + ")}
+                            </div>` : ""}
 
                             <!-- Bouton Bon pour accord -->
                             <table width="100%" border="0" cellpadding="0" cellspacing="0"
@@ -383,7 +465,7 @@ return { html, subject };
 /**
 * Version texte plain
 */
-function buildPlainText({ quote, agent, choices }) {
+function buildPlainText({ quote, agent, choices, dataPhoneNote }) {
 const rawName = quote.customerName || "Client";
 let salutation = "Bonjour";
 let displayName = rawName;
@@ -397,12 +479,48 @@ displayName = rawName.slice("Monsieur ".length);
 salutation = "Bonjour";
 displayName = rawName.slice("Pro ".length);
 }
-const choicesShort = choices.map(c => c.label).join(" + ");
-const subject = `Offre speciale Onlyoo - ${choicesShort}`;
+const isPromoSection = (c) => {
+const title = (c.section?.title || "").toLowerCase();
+const key = (c.section?.key || "").toLowerCase();
+return title.includes("promotion") || key.includes("promotion");
+};
 
-const choicesList = choices.map((c) => {
+const isCadeauxChoice = (c) => {
+const label = (c.label || "").toLowerCase();
+const parentLabel = (c.parent?.label || "").toLowerCase();
+return label.includes("cadeaux") || parentLabel.includes("cadeaux");
+};
+
+const isDataPhoneChoice = (c) =>
+  String(c.key || "").trim().toLowerCase().startsWith("data_phone");
+const isInstallationChoice = (c) =>
+  String(c.key || "").trim().toLowerCase() === "installation_proximus";
+const dataPhoneChoices = choices.filter((c) => isDataPhoneChoice(c));
+const installationChoices = choices.filter((c) => isInstallationChoice(c));
+const displayChoices = choices.filter(
+  (c) =>
+    (!isPromoSection(c) || isCadeauxChoice(c)) &&
+    !isInstallationChoice(c)
+);
+const cadeauxChoices = displayChoices.filter((c) => isCadeauxChoice(c));
+const mainChoices = displayChoices.filter((c) => !isCadeauxChoice(c));
+
+const formatChoiceLabel = (c) => {
+const qty = Number(c.qty || 1);
+return qty > 1 ? `${c.label} x${qty}` : c.label;
+};
+
+const choicesShort = displayChoices.map((c) => formatChoiceLabel(c)).join(" + ");
+const subject = `Contrat de mise en service Pack Proximus - ${choicesShort}`;
+
+const choicesList = mainChoices.map((c) => {
 const desc = c.description ? ` - ${c.description}` : "";
-return `- ${c.label}${desc}`;
+return `- ${formatChoiceLabel(c)}${desc}`;
+}).join("\n");
+
+const cadeauxList = cadeauxChoices.map((c) => {
+const desc = c.description ? ` - ${c.description}` : "";
+return `- ${formatChoiceLabel(c)}${desc}`;
 }).join("\n");
 
 const text = `Offre speciale Onlyoo - ${choicesShort}
@@ -412,6 +530,11 @@ ${salutation} ${displayName},
 Voici le recapulatif de votre nouvelle installation :
 
 ${choicesList}
+
+${dataPhoneNote || dataPhoneChoices.length ? `Data Phone: ${dataPhoneChoices.map((c) => formatChoiceLabel(c)).join(" + ")}${dataPhoneNote ? ` - ${String(dataPhoneNote)}` : ""}` : ""}
+${installationChoices.length ? `Installation: ${installationChoices.map((c) => formatChoiceLabel(c)).join(" + ")}` : ""}
+
+${cadeauxList ? `Cadeaux:\n${cadeauxList}\n` : ""}
 
 TARIFICATION:
 Annee 1: ${MONEY(quote.totalY1)}€/mois

@@ -121,6 +121,8 @@ export default function ManagerMatrix() {
         sortOrder: 0,
         active: true,
         parentId: "", // Added parentId field
+        allowQty: false,
+        maxQty: "",
     });
 
     const loadAll = async () => {
@@ -184,6 +186,8 @@ export default function ManagerMatrix() {
             priceY1: ch.priceY1 || 0,
             priceY2: ch.priceY2 || 0,
             parentId: ch.parentId || "", // Gérer parentId
+            allowQty: Boolean(ch.allowQty),
+            maxQty: ch.maxQty ?? "",
         });
         setEditModalOpen(true);
     };
@@ -238,26 +242,6 @@ export default function ManagerMatrix() {
         if (!secForm.key || !secForm.title) return alert("key + title requis");
         await api.post("/matrix/sections", secForm);
         setSecForm({ key: "", title: "", type: "single", sortOrder: 0 });
-        await loadAll();
-    };
-
-    const moveSectionUp = async (sec) => {
-        const sorted = sortedSections;
-        const idx = sorted.findIndex((s) => s.id === sec.id);
-        if (idx <= 0) return;
-        const prev = sorted[idx - 1];
-        const newOrder = (prev.sortOrder ?? 0) - 1;
-        await api.put(`/matrix/sections/${sec.id}`, { sortOrder: newOrder });
-        await loadAll();
-    };
-
-    const moveSectionDown = async (sec) => {
-        const sorted = sortedSections;
-        const idx = sorted.findIndex((s) => s.id === sec.id);
-        if (idx >= sorted.length - 1) return;
-        const next = sorted[idx + 1];
-        const newOrder = (next.sortOrder ?? 0) + 1;
-        await api.put(`/matrix/sections/${sec.id}`, { sortOrder: newOrder });
         await loadAll();
     };
 
@@ -327,6 +311,8 @@ export default function ManagerMatrix() {
                 sortOrder: 0,
                 active: true,
                 parentId: "",
+                allowQty: false,
+                maxQty: "",
             });
             await loadAll();
         } catch (err) {
@@ -458,6 +444,29 @@ export default function ManagerMatrix() {
                                 disabled={!!editForm.parentId}
                                 title={editForm.parentId ? "Hérité du parent" : ""}
                                 className={editForm.parentId ? "bg-gray-100" : ""}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={!!editForm.allowQty}
+                                onChange={(e) => setEditForm({ ...editForm, allowQty: e.target.checked })}
+                                disabled={!!editForm.parentId}
+                                className="w-4 h-4"
+                            />
+                            <span className="text-sm text-gray-700">Quantité activée</span>
+                        </div>
+                        <div>
+                            <div className="text-sm font-semibold text-gray-600 mb-1">Max quantité</div>
+                            <Input
+                                type="number"
+                                min="1"
+                                value={editForm.maxQty}
+                                onChange={(e) => setEditForm({ ...editForm, maxQty: e.target.value })}
+                                disabled={!editForm.allowQty || !!editForm.parentId}
+                                className={!editForm.allowQty || editForm.parentId ? "bg-gray-100" : ""}
                             />
                         </div>
                     </div>
@@ -710,6 +719,27 @@ export default function ManagerMatrix() {
                             placeholder="Description optionnelle..."
                         />
                     </div>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            checked={!!choiceForm.allowQty}
+                            onChange={(e) => setChoiceForm({ ...choiceForm, allowQty: e.target.checked })}
+                            disabled={!!choiceForm.parentId}
+                            className="w-4 h-4"
+                        />
+                        <span className="text-xs text-gray-700">Quantité activée</span>
+                    </div>
+                    <div>
+                        <div className="text-xs font-semibold text-gray-600 mb-1">Max quantité</div>
+                        <Input
+                            type="number"
+                            min="1"
+                            value={choiceForm.maxQty}
+                            onChange={(e) => setChoiceForm({ ...choiceForm, maxQty: e.target.value })}
+                            disabled={!choiceForm.allowQty || !!choiceForm.parentId}
+                            className={!choiceForm.allowQty || choiceForm.parentId ? "bg-gray-100" : ""}
+                        />
+                    </div>
                     <div className="flex items-end">
                         <Button onClick={createChoice} disabled={loading} className="w-full">
                             {choiceForm.parentId ? "Ajouter sous-choix" : "Ajouter choix"}
@@ -739,6 +769,7 @@ export default function ManagerMatrix() {
                                         <th className="py-2 px-3">Description</th>
                                         <th className="py-2 px-3 text-right">Y1 (€)</th>
                                         <th className="py-2 px-3 text-right">Y2 (€)</th>
+                                        <th className="py-2 px-3 text-center">Qté</th>
                                         <th className="py-2 px-3 text-center">Actif</th>
                                         <th className="py-2 px-3 text-center">Drag</th>
                                         <th className="py-2 px-3 text-right">Actions</th>
@@ -767,6 +798,9 @@ export default function ManagerMatrix() {
                                                 </td>
                                                 <td className="py-2 px-3 text-right font-mono">{ch.priceY1?.toFixed(2)}</td>
                                                 <td className="py-2 px-3 text-right font-mono">{ch.priceY2?.toFixed(2)}</td>
+                                                <td className="py-2 px-3 text-center text-xs text-gray-600">
+                                                    {ch.allowQty ? `Oui${ch.maxQty ? ` (max ${ch.maxQty})` : ""}` : "Non"}
+                                                </td>
                                                 <td className="py-2 px-3 text-center">
                                                     <input
                                                         type="checkbox"
@@ -830,6 +864,7 @@ export default function ManagerMatrix() {
                                                     <td className="py-2 px-3 text-right font-mono text-gray-400 italic" title="Hérité">
                                                         {ch.priceY2?.toFixed(2)}
                                                     </td>
+                                                    <td className="py-2 px-3 text-center text-xs text-gray-400">-</td>
                                                     <td className="py-2 px-3 text-center">
                                                         <input
                                                             type="checkbox"

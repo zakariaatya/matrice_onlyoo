@@ -178,5 +178,3 @@ const deleteUser = async (id) => {
     </div>
   );
 }
-
-

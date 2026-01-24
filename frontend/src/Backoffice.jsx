@@ -8,11 +8,36 @@ export default function Backoffice() {
   const [error, setError] = useState("");
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [mailPreview, setMailPreview] = useState(null);
+  const [query, setQuery] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
-  const toSendQuotes = useMemo(
-    () => quotes.filter((q) => q.status === "TO_SEND"),
-    [quotes]
-  );
+  const filteredQuotes = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (quotes || []).filter((item) => {
+      const matchesQuery =
+        !q ||
+        String(item.id || "").includes(q) ||
+        (item.customerName || "").toLowerCase().includes(q) ||
+        (item.customerEmail || "").toLowerCase().includes(q) ||
+        (item.customerPhone || "").toLowerCase().includes(q) ||
+        (item.agent?.name || "").toLowerCase().includes(q) ||
+        (item.status || "").toLowerCase().includes(q);
+
+      const created = item.createdAt ? new Date(item.createdAt) : null;
+      const afterStart = startDate ? created && created >= new Date(startDate) : true;
+      const beforeEnd = endDate ? created && created <= new Date(endDate) : true;
+      return matchesQuery && afterStart && beforeEnd;
+    });
+  }, [quotes, query, startDate, endDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredQuotes.length / pageSize));
+  const pagedQuotes = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredQuotes.slice(start, start + pageSize);
+  }, [filteredQuotes, page, pageSize]);
 
   const load = async () => {
     try {
@@ -28,11 +53,16 @@ export default function Backoffice() {
     }
   };
 
+  const formatCustomerName = (name) => {
+    const raw = String(name || "").trim();
+    return raw.replace(/^(monsieur|madame|m|mme|mr|pr|pro)\s+/i, "");
+  };
+
   useEffect(() => {
     load();
   }, []);
 
-  const viewAndSendMail = async (q) => {
+  const viewMail = async (q) => {
     try {
       setError("");
       setActionId(q.id);
@@ -47,68 +77,20 @@ export default function Backoffice() {
     }
   };
 
-  const copyHtmlToClipboard = async () => {
+  const deleteQuote = async (q) => {
+    if (!window.confirm(`Supprimer le devis #${q.id} ?`)) return;
     try {
-      if (!mailPreview?.bodyHtml) return;
-
-      const html = mailPreview.bodyHtml;
-
-      try {
-        const blob = new Blob([html], { type: "text/html" });
-        const data = [new ClipboardItem({ "text/html": blob })];
-        await navigator.clipboard.write(data);
-        alert("Mail copie avec formatage ! Collez-le dans Outlook (Ctrl+V).");
-      } catch (e) {
-        await navigator.clipboard.writeText(html);
-        alert("HTML copie ! Collez-le dans Outlook (Ctrl+V).");
+      setError("");
+      setActionId(q.id);
+      await api.delete(`/quotes/${q.id}`);
+      await load();
+      if (selectedQuote?.id === q.id) {
+        setMailPreview(null);
+        setSelectedQuote(null);
       }
     } catch (e) {
       console.error(e);
-      alert("Erreur lors de la copie");
-    }
-  };
-
-  const buildEml = () => {
-    if (!mailPreview?.bodyHtml) return "";
-    const to = mailPreview.customerEmail || "";
-    const subject = mailPreview.subject || "Offre Proximus";
-    const html = mailPreview.bodyHtml;
-    return [
-      `To: ${to}`,
-      `Subject: ${subject}`,
-      "MIME-Version: 1.0",
-      'Content-Type: text/html; charset="UTF-8"',
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      html,
-      "",
-    ].join("\r\n");
-  };
-
-
-  const openEml = () => {
-    const eml = buildEml();
-    if (!eml) return;
-    const blob = new Blob([eml], { type: "message/rfc822" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank", "noopener,noreferrer");
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  };
-
-
-
-
-  const markAsSent = async () => {
-    try {
-      setError("");
-      setActionId(selectedQuote.id);
-      await api.post(`/quotes/${selectedQuote.id}/send`);
-      await load();
-      setMailPreview(null);
-      setSelectedQuote(null);
-    } catch (e) {
-      console.error(e);
-      setError(e?.response?.data?.error || e?.message || "Erreur envoi");
+      setError(e?.response?.data?.error || e?.message || "Erreur suppression");
     } finally {
       setActionId(null);
     }
@@ -118,10 +100,40 @@ export default function Backoffice() {
     <div className="space-y-4">
       <div className="bg-white border rounded-xl p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="font-bold text-lg">Back-office - Devis a envoyer</div>
+          <div className="font-bold text-lg">Back-office - Devis</div>
           <button className="px-3 py-1 rounded border" onClick={load} disabled={loading}>
             {loading ? "Chargement..." : "Rafraichir"}
           </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <input
+            className="border rounded px-3 py-2 text-sm"
+            placeholder="Filtrer: nom, email, tel, agent, statut, ID..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+          />
+          <input
+            className="border rounded px-3 py-2 text-sm"
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              setStartDate(e.target.value);
+              setPage(1);
+            }}
+          />
+          <input
+            className="border rounded px-3 py-2 text-sm"
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              setEndDate(e.target.value);
+              setPage(1);
+            }}
+          />
         </div>
 
         {error && (
@@ -137,44 +149,75 @@ export default function Backoffice() {
                 <th className="py-2">ID</th>
                 <th>Client</th>
                 <th>Email</th>
+                <th>Téléphone</th>
+                <th>Agent</th>
                 <th>Status</th>
-                <th>Y1</th>
-                <th>Y2</th>
+                <th>Date</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
 
             <tbody>
-              {toSendQuotes.map((q) => (
+              {pagedQuotes.map((q) => (
                 <tr key={q.id} className="border-b last:border-0">
                   <td className="py-2">#{q.id}</td>
-                  <td>{q.customerName}</td>
+                  <td>{formatCustomerName(q.customerName)}</td>
                   <td>{q.customerEmail}</td>
+                  <td>{q.customerPhone || "—"}</td>
+                  <td>{q.agent?.name || "—"}</td>
                   <td>{q.status}</td>
-                  <td>{Number(q.totalY1 || 0).toFixed(2)}</td>
-                  <td>{Number(q.totalY2 || 0).toFixed(2)}</td>
+                  <td>{q.createdAt ? new Date(q.createdAt).toLocaleDateString() : "—"}</td>
 
-                  <td className="text-right">
+                  <td className="text-right space-x-2">
                     <button
                       className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-60 hover:bg-blue-700"
-                      onClick={() => viewAndSendMail(q)}
+                      onClick={() => viewMail(q)}
                       disabled={actionId === q.id}
                     >
-                      {actionId === q.id ? "..." : "Envoyer"}
+                      {actionId === q.id ? "..." : "Voir"}
+                    </button>
+                    <button
+                      className="px-4 py-2 rounded bg-red-600 text-white disabled:opacity-60 hover:bg-red-700"
+                      onClick={() => deleteQuote(q)}
+                      disabled={actionId === q.id}
+                    >
+                      Supprimer
                     </button>
                   </td>
                 </tr>
               ))}
 
-              {toSendQuotes.length === 0 && (
+              {pagedQuotes.length === 0 && (
                 <tr>
-                  <td className="py-3 text-gray-500" colSpan={7}>
-                    Aucun devis a envoyer.
+                  <td className="py-3 text-gray-500" colSpan={8}>
+                    Aucun devis.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex items-center justify-between mt-3 text-sm">
+          <div>
+            {filteredQuotes.length} devis • page {page} / {totalPages}
+          </div>
+          <div className="space-x-2">
+            <button
+              className="px-3 py-1 rounded border disabled:opacity-50"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              Précédent
+            </button>
+            <button
+              className="px-3 py-1 rounded border disabled:opacity-50"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Suivant
+            </button>
+          </div>
         </div>
       </div>
 
@@ -184,8 +227,7 @@ export default function Backoffice() {
             <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-800 text-white p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold mb-1">{mailPreview.subject}</h2>
-                  <div className="opacity-90">{mailPreview.customerName} ({mailPreview.customerEmail})</div>
+                  <h2 className="text-2xl font-bold mb-1">Aperçu du mail</h2>
                 </div>
                 <button
                   className="text-white hover:text-gray-200 text-3xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/20"
@@ -200,15 +242,6 @@ export default function Backoffice() {
             </div>
 
             <div className="p-4">
-              <div className="mb-4 p-3 bg-gray-100 rounded border">
-                <div className="text-sm text-gray-600">
-                  <strong>A :</strong> {mailPreview.customerEmail}
-                </div>
-                <div className="text-sm text-gray-600">
-                  <strong>Sujet :</strong> {mailPreview.subject}
-                </div>
-              </div>
-
               <div className="border rounded-lg overflow-hidden mb-4">
                 <iframe
                   title="Mail Preview"
@@ -216,38 +249,9 @@ export default function Backoffice() {
                   srcDoc={mailPreview.bodyHtml}
                 />
               </div>
-
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-                <strong>Comment envoyer :</strong>
-                <ul className="mt-2 space-y-1 ml-4 list-disc">
-                  <li>Cliquez sur "Copier le mail" pour copier tout le format HTML</li>
-                  <li>Creez un nouveau mail dans Outlook</li>
-                  <li>Collez le contenu (Ctrl+V)</li>
-                  <li>Le client recevra le mail complet avec tous les styles</li>
-                </ul>
-              </div>
             </div>
 
             <div className="sticky bottom-0 bg-white border-t p-4 flex gap-3 justify-end">
-              <button
-                className="px-4 py-2 rounded border hover:bg-gray-100"
-                onClick={openEml}
-              >
-                Ouvrir EML
-              </button>
-              <button
-                className="px-4 py-2 rounded border hover:bg-gray-100"
-                onClick={copyHtmlToClipboard}
-              >
-                Copier le mail
-              </button>
-              <button
-                className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
-                onClick={markAsSent}
-                disabled={actionId === selectedQuote?.id}
-              >
-                Marque comme envoye
-              </button>
               <button
                 className="px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600"
                 onClick={() => {

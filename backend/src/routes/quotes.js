@@ -25,7 +25,7 @@ router.get("/", requireAuth, async (req, res) => {
       orderBy: { createdAt: "desc" },
       include: {
         agent: { select: { id: true, name: true, email: true, role: true } },
-        selections: { include: { choice: { include: { section: true } } } },
+        selections: { include: { choice: { include: { section: true, parent: true } } } },
       },
     });
 
@@ -42,7 +42,7 @@ router.get("/", requireAuth, async (req, res) => {
  */
 router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
   try {
-    const { customerName, customerEmail, choiceIds, gsmItems, totalY1, totalY2 } = req.body;
+    const { customerName, customerEmail, customerPhone, choiceIds, gsmItems, qtyItems, dataPhoneNote, totalY1, totalY2 } = req.body;
 
     console.log("=== POST /api/quotes ===");
     console.log("user:", req.user?.email, "role:", req.user?.role);
@@ -53,14 +53,22 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
       return res.status(400).json({ error: "customerName et customerEmail requis" });
     }
 
-    // Si choiceIds est fourni, on l'utilise, sinon on reconstruit depuis gsmItems
+    // Si choiceIds est fourni, on l'utilise, sinon on reconstruit depuis gsmItems/qtyItems
     let ids = [];
     if (Array.isArray(choiceIds) && choiceIds.length > 0) {
       ids = choiceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x));
       console.log("choiceIds fournis:", ids);
-    } else if (Array.isArray(gsmItems) && gsmItems.length > 0) {
-      ids = gsmItems.map((item) => Number(item.choiceId)).filter((x) => Number.isFinite(x));
-      console.log("gsmItems fournis, ids reconstruits:", ids);
+    } else {
+      const gsmIds = Array.isArray(gsmItems)
+        ? gsmItems.map((item) => Number(item.choiceId)).filter((x) => Number.isFinite(x))
+        : [];
+      const qtyIds = Array.isArray(qtyItems)
+        ? qtyItems.map((item) => Number(item.choiceId)).filter((x) => Number.isFinite(x))
+        : [];
+      ids = Array.from(new Set([...gsmIds, ...qtyIds]));
+      if (ids.length) {
+        console.log("ids reconstruits:", ids);
+      }
     }
 
     if (ids.length === 0) {
@@ -71,7 +79,7 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
     console.log("Recherche des choix en base...");
     const choices = await prisma.matrixChoice.findMany({
       where: { id: { in: ids }, active: true },
-      include: { section: true },
+      include: { section: true, parent: true },
     });
 
     console.log("Choix trouvés:", choices.length);
@@ -89,25 +97,27 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
         ? gsmItems.map((item) => [Number(item.choiceId), Number(item.qty) || 1])
         : []
     );
+    const qtyMap = new Map(
+      Array.isArray(qtyItems)
+        ? qtyItems.map((item) => [Number(item.choiceId), Number(item.qty) || 1])
+        : []
+    );
+    const qtyByChoice = new Map();
+    for (const [id, qty] of gsmMap.entries()) qtyByChoice.set(id, qty);
+    for (const [id, qty] of qtyMap.entries()) qtyByChoice.set(id, qty);
 
-    if (gsmMap.size > 0) {
-      choices.forEach((c) => {
-        const qty = gsmMap.get(c.id) || 1;
-        calcY1 += Number(c.priceY1 || 0) * qty;
-        calcY2 += Number(c.priceY2 || 0) * qty;
-      });
-      console.log("Totaux calculés (avec GSM qty):", { calcY1, calcY2 });
-    } else {
-      calcY1 = choices.reduce((sum, c) => sum + Number(c.priceY1 || 0), 0);
-      calcY2 = choices.reduce((sum, c) => sum + Number(c.priceY2 || 0), 0);
-      console.log("Totaux calculés (sans GSM qty):", { calcY1, calcY2 });
-    }
+    choices.forEach((c) => {
+      const qty = qtyByChoice.get(c.id) || 1;
+      calcY1 += Number(c.priceY1 || 0) * qty;
+      calcY2 += Number(c.priceY2 || 0) * qty;
+    });
+    console.log("Totaux calculés:", { calcY1, calcY2 });
 
     // Remise GSM Flex: -5€ sur Y2 pour chaque quantite au-dela de 1
     let flexQty = 0;
-    if (gsmMap.size > 0) {
+    if (qtyByChoice.size > 0) {
       choices.forEach((c) => {
-        const qty = gsmMap.get(c.id) || 0;
+        const qty = qtyByChoice.get(c.id) || 0;
         if (!qty) return;
         const secTitle = (c.section?.title || "").toLowerCase();
         const secKey = (c.section?.key || "").toLowerCase();
@@ -138,24 +148,47 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
     console.log("Totaux finaux:", { finalY1, finalY2 });
 
     console.log("Création du devis...");
-    const quote = await prisma.quote.create({
-      data: {
-        agentId: req.user.id,
-        customerName,
-        customerEmail,
-        totalY1: finalY1,
-        totalY2: finalY2,
-        emailContent: "",
-        status: "TO_SEND",
-        selections: {
-          create: ids.map((id) => ({ choiceId: id })),
+    const createData = {
+      agentId: req.user.id,
+      customerName,
+      customerEmail,
+      customerPhone: customerPhone || null,
+      totalY1: finalY1,
+      totalY2: finalY2,
+      emailContent: "",
+      status: "TO_SEND",
+      selections: {
+        create: ids.map((id) => ({
+          choiceId: id,
+          qty: qtyByChoice.get(id) || 1,
+        })),
+      },
+    };
+
+    let quote;
+    try {
+      quote = await prisma.quote.create({
+        data: createData,
+        include: {
+          agent: { select: { id: true, name: true, email: true } },
+          selections: { include: { choice: { include: { section: true, parent: true } } } },
         },
-      },
-      include: {
-        agent: { select: { id: true, name: true, email: true } },
-        selections: { include: { choice: { include: { section: true } } } },
-      },
-    });
+      });
+    } catch (err) {
+      const msg = String(err?.message || "");
+      if (msg.includes("Unknown argument `customerPhone`")) {
+        const { customerPhone: _unused, ...fallbackData } = createData;
+        quote = await prisma.quote.create({
+          data: fallbackData,
+          include: {
+            agent: { select: { id: true, name: true, email: true } },
+            selections: { include: { choice: { include: { section: true, parent: true } } } },
+          },
+        });
+      } else {
+        throw err;
+      }
+    }
 
     console.log("Devis créé avec ID:", quote.id);
 
@@ -168,15 +201,33 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
     const hasOnlyooLogo = fs.existsSync(onlyooLogoPath);
     const hasProximusLogo = fs.existsSync(proximusLogoPath);
 
+    const choicesWithQty = choices.map((c) => ({
+      ...c,
+      qty: qtyByChoice.get(c.id) || 1,
+    }));
+
+    const sortedChoices = choicesWithQty
+      .slice()
+      .sort((a, b) => {
+        const secA = Number(a.section?.sortOrder ?? 0);
+        const secB = Number(b.section?.sortOrder ?? 0);
+        if (secA !== secB) return secA - secB;
+        const chA = Number(a.sortOrder ?? 0);
+        const chB = Number(b.sortOrder ?? 0);
+        if (chA !== chB) return chA - chB;
+        return a.id - b.id;
+      });
+
     const { html: bodyHtml, subject } = buildOutlookCompatibleHtml({
       quote,
       agent: quote.agent,
-      choices,
+      choices: sortedChoices,
       boEmail: AGREEMENT_TO,
       logoOnlyooSrc: hasOnlyooLogo ? "cid:logo-onlyoo" : undefined,
       logoProximusSrc: hasProximusLogo ? "cid:logo-proximus" : undefined,
+      dataPhoneNote: dataPhoneNote ? String(dataPhoneNote) : "",
     });
-    const { text: bodyText } = buildPlainText({ quote, agent: quote.agent, choices });
+    const { text: bodyText } = buildPlainText({ quote, agent: quote.agent, choices: sortedChoices });
 
     const fixedTo = process.env.MAIL_PREVIEW_TO || FROM;
     const clientName = quote.customerName || "Client";
@@ -236,7 +287,7 @@ router.get("/:id/preview", requireAuth, requireRole("BACKOFFICE"), async (req, r
       where: { id },
       include: {
         agent: { select: { id: true, name: true, email: true } },
-        selections: { include: { choice: { include: { section: true } } } },
+        selections: { include: { choice: { include: { section: true, parent: true } } } },
       },
     });
 
@@ -246,6 +297,7 @@ router.get("/:id/preview", requireAuth, requireRole("BACKOFFICE"), async (req, r
       .map((s) => ({
         ...s.choice,
         section: s.choice.section,
+        qty: s.qty || 1,
       }))
       .sort((a, b) => {
         const secA = Number(a.section?.sortOrder ?? 0);
@@ -286,9 +338,10 @@ router.get("/:id/preview", requireAuth, requireRole("BACKOFFICE"), async (req, r
       agent: quote.agent,
       choices,
       boEmail: BO_EMAIL,
+      dataPhoneNote: "",
     });
 
-    const { text: bodyText } = buildPlainText({ quote, agent: quote.agent, choices });
+    const { text: bodyText } = buildPlainText({ quote, agent: quote.agent, choices, dataPhoneNote: "" });
 
     res.json({
       quoteId: quote.id,
@@ -326,6 +379,23 @@ router.post("/:id/send", requireAuth, requireRole("BACKOFFICE"), async (req, res
     });
   } catch (err) {
     console.error("POST /api/quotes/:id/send ERROR =>", err);
+    res.status(500).json({ error: err?.message || "Erreur serveur" });
+  }
+});
+
+/**
+ * ✅ DELETE /api/quotes/:id
+ * Supprime un devis (Backoffice)
+ */
+router.delete("/:id", requireAuth, requireRole("BACKOFFICE"), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "ID invalide" });
+
+    await prisma.quote.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("DELETE /api/quotes/:id ERROR =>", err);
     res.status(500).json({ error: err?.message || "Erreur serveur" });
   }
 });

@@ -189,6 +189,7 @@ export default function App() {
   }, []);
 
   const role = user?.role;
+  const isAgentView = role === "AGENT" && view === "agent";
 
   // Default view by role
   useEffect(() => {
@@ -210,24 +211,17 @@ export default function App() {
   // IMPORTANT: hooks are above, now conditional return is OK
   if (!user) return <Login onLoggedIn={(u) => setUser(u)} />;
 
-  const roleIcons = {
-    ADMIN: "⚙️",
-    MANAGER: "👔",
-    AGENT: "👨‍💼",
-    BACKOFFICE: "🏢"
-  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="bg-white border-b shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div>
-            <div className="font-black text-2xl bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-              Matrice Proximus
-            </div>
-            <div className="text-xs text-gray-500 font-medium">
-              EOL ICT • {roleIcons[role]} {user.name} ({role})
-            </div>
+    <div className={isAgentView ? "min-h-screen agent-bg" : "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100"}>
+      <div className={isAgentView ? "agent-header" : "bg-white border-b shadow-sm"}>
+        <div
+          className={`max-w-7xl mx-auto ${isAgentView ? "px-5" : "px-4"} py-3 flex items-center justify-between ${isAgentView ? "agent-header-text" : ""}`}
+        >
+          <div className="logo-row">
+            <img src="/eol.png" alt="EOL" className="logo-eol" />
+            <div className="logo-x">×</div>
+            <img src="/onlyoo_logo.png" alt="ONLYOO" className="logo-onlyoo" />
           </div>
 
           <div className="flex gap-2 items-center">

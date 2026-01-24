@@ -7,6 +7,50 @@ html, body {
   height: 100%;
 }
 
+.agent-bg {
+  background:
+    radial-gradient(1200px 700px at 20% 35%, rgba(120, 90, 255, 0.22), transparent 60%),
+    radial-gradient(1000px 600px at 80% 30%, rgba(60, 190, 255, 0.18), transparent 58%),
+    radial-gradient(900px 700px at 50% 90%, rgba(120, 90, 255, 0.12), transparent 60%),
+    linear-gradient(180deg, #070A1A 0%, #0B1230 45%, #070A1A 100%);
+}
+
+.agent-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.agent-header-text {
+  color: #ffffff;
+}
+
+.logo-x {
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 800;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: 60px;
+}
+
+.logo-eol {
+  height: 64px;
+  width: auto;
+  display: block;
+}
+
+.logo-onlyoo {
+  height: 120px;
+  width: auto;
+  display: block;
+}
+
 .matrix-select {
   background-color: rgba(0, 0, 0, 0.35);
   color: #e8eefc;

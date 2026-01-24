@@ -147,7 +147,7 @@ router.get("/choices", async (req, res) => {
 });
 
 router.post("/choices", async (req, res) => {
-  const { sectionId, key, label, priceY1, priceY2, sortOrder, active, parentId, description } = req.body;
+  const { sectionId, key, label, priceY1, priceY2, sortOrder, active, parentId, description, allowQty, maxQty } = req.body;
   if (!sectionId || !key || !label) return res.status(400).json({ error: "sectionId,key,label requis" });
 
   const choice = await prisma.matrixChoice.create({
@@ -160,6 +160,8 @@ router.post("/choices", async (req, res) => {
       priceY2: Number(priceY2) || 0,
       sortOrder: Number(sortOrder) || 0,
       active: active !== undefined ? Boolean(active) : true,
+      allowQty: Boolean(allowQty),
+      maxQty: maxQty !== undefined && maxQty !== null && maxQty !== "" ? Number(maxQty) : null,
       parentId: parentId ? Number(parentId) : null,
     },
   });
@@ -169,7 +171,7 @@ router.post("/choices", async (req, res) => {
 
 router.put("/choices/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const { label, priceY1, priceY2, sortOrder, active, description, parentId } = req.body;
+  const { label, priceY1, priceY2, sortOrder, active, description, parentId, allowQty, maxQty } = req.body;
 
   const choice = await prisma.matrixChoice.update({
     where: { id },
@@ -180,6 +182,8 @@ router.put("/choices/:id", async (req, res) => {
       sortOrder: sortOrder !== undefined ? Number(sortOrder) : undefined,
       active: active !== undefined ? Boolean(active) : undefined,
       description: description ?? undefined,
+      allowQty: allowQty !== undefined ? Boolean(allowQty) : undefined,
+      maxQty: maxQty !== undefined ? (maxQty === "" || maxQty === null ? null : Number(maxQty)) : undefined,
       parentId: parentId !== undefined ? (parentId ? Number(parentId) : null) : undefined,
     },
   });
@@ -327,4 +331,3 @@ router.delete("/alerts/:id", async (req, res) => {
 });
 
 module.exports = router;
-
