@@ -50,5 +50,20 @@ services:
       - ./frontend:/app
       - /app/node_modules
     command: sh -c "npm install && npm start"
+
+  prisma-studio:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/eol_matrix
+    ports:
+      - "5555:5555"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npx prisma studio --port 5555 --hostname 0.0.0.0"
 volumes:
   pgdata:
