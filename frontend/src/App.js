@@ -189,14 +189,15 @@ export default function App() {
   }, []);
 
   const role = user?.role;
-  const isAgentView = role === "AGENT" && view === "agent";
+  const isAgentRole = role === "AGENT" || role === "FORMATION";
+  const isAgentView = isAgentRole && view === "agent";
 
   // Default view by role
   useEffect(() => {
     if (!role) return;
     if (role === "ADMIN") setView("admin");
     else if (role === "MANAGER") setView("manager");
-    else if (role === "AGENT") setView("agent");
+    else if (role === "AGENT" || role === "FORMATION") setView("agent");
     else if (role === "BACKOFFICE") setView("bo");
     else setView("home");
   }, [role]);
@@ -237,7 +238,7 @@ export default function App() {
               </Button>
             )}
 
-            {role === "AGENT" && (
+            {isAgentRole && (
               <Button variant={view === "agent" ? "primary" : "secondary"} onClick={() => setView("agent")}>
                 👨‍💼 {user.name}
               </Button>
@@ -266,7 +267,7 @@ export default function App() {
 
         {view === "admin" && role === "ADMIN" && <Admin />}
         {view === "manager" && role === "MANAGER" && <ManagerMatrix />}
-        {view === "agent" && role === "AGENT" && <MatrixAgent currentUser={user} />}
+        {view === "agent" && isAgentRole && <MatrixAgent currentUser={user} />}
         {view === "bo" && role === "BACKOFFICE" && <Backoffice />}
       </div>
     </div>

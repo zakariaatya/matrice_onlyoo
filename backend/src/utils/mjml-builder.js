@@ -118,7 +118,7 @@ function buildMjmlTemplate({ quote, agent, choices, boEmail }) {
     <!-- Bouton de confirmation -->
     <mj-section background-color="white" padding="30px">
       <mj-column>
-        <mj-button background-color="#1976d2" color="white" font-weight="bold" font-size="18px" padding="16px 40px" border-radius="8px" href="mailto:${boEmail}?subject=Je%20confirme%20mon%20accord%20pour%20votre%20offre%20sp%C3%A9ciale%20Proximus%20-%20${encodeURIComponent(offerLabel)}&body=Bonjour%2C%0A%0AJe%20confirme%20mon%20accord%20pour%20votre%20offre%20sp%C3%A9ciale%20Proximus.%0A%0ACordialement%2C">
+        <mj-button background-color="#1976d2" color="white" font-weight="bold" font-size="18px" padding="16px 40px" border-radius="8px" href="mailto:${boEmail}?subject=${encodeURIComponent(`Offre Onlyoo, Commercial : ${agent?.name || ""}`)}&body=Bonjour%2C%0A%0AJe%20confirme%20mon%20accord%20pour%20votre%20offre%20sp%C3%A9ciale%20Proximus.%0A%0ACordialement%2C">
           ✓ CONFIRMER MON ACCORD
         </mj-button>
         <mj-text font-size="12px" color="#999999" align="center" margin="12px 0 0 0">

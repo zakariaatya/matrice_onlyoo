@@ -159,6 +159,7 @@ enum UserRole {
   ADMIN
   MANAGER
   AGENT
+  FORMATION
   BACKOFFICE
 }
 

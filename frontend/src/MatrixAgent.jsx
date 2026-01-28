@@ -823,6 +823,16 @@ export default function MatrixAgent({ currentUser }) {
       .filter(Boolean);
   }, [promoSelectedIds, choiceById]);
 
+  const hasCadeauxChildSelected = useMemo(() => {
+    if (!promoSelectedIds.length) return false;
+    return promoSelectedIds.some((id) => {
+      const c = choiceById.get(id);
+      if (!c?.parentId) return false;
+      const parent = choiceById.get(Number(c.parentId));
+      return (parent?.label || "").toLowerCase().includes("cadeaux");
+    });
+  }, [promoSelectedIds, choiceById]);
+
   const isPromo6Mois = useMemo(() => {
     return promoSelectedLabels.some((label) => {
       const p = label.toLowerCase();
@@ -1035,6 +1045,19 @@ export default function MatrixAgent({ currentUser }) {
     );
   }, []);
 
+  const isInstallationChoice = useCallback((choice, section) => {
+    const key = String(choice?.key || "").trim().toLowerCase();
+    const label = String(choice?.label || "").trim().toLowerCase();
+    const secKey = String(section?.key || "").trim().toLowerCase();
+    const secTitle = String(section?.title || "").trim().toLowerCase();
+    return (
+      key === "installation_proximus" ||
+      label.includes("installation") ||
+      secKey.includes("installation") ||
+      secTitle.includes("installation")
+    );
+  }, []);
+
   const isDataPhoneSelected = useMemo(() => {
     const dataPhoneIds = [];
     sections.forEach((sec) => {
@@ -1049,6 +1072,42 @@ export default function MatrixAgent({ currentUser }) {
       return false;
     });
   }, [sections, isDataPhoneSection, gsmQty, choiceQty, selectedIds]);
+
+  const hasPackFlexSelected = useMemo(() => {
+    const packSec = sections.find((s) => s.key === "pack_type") || null;
+    if (!packSec) return false;
+    const secType = packSec.type || "single";
+    const ids =
+      secType === "multi"
+        ? (selectedMulti[packSec.key] || [])
+        : selectedSingle[packSec.key]
+        ? [selectedSingle[packSec.key]]
+        : [];
+    if (ids.length > 0) return true;
+    return ids.some((id) => {
+      const c = choiceById.get(Number(id));
+      if (!c) return false;
+      const key = String(c.key || "").toLowerCase();
+      const label = String(c.label || "").toLowerCase();
+      return key.includes("packflex") || label.includes("pack flex") || label.includes("packflex");
+    });
+  }, [sections, selectedSingle, selectedMulti, choiceById, sectionHasToken]);
+
+  const isInstallationSelected = useMemo(() => {
+    const installationIds = [];
+    sections.forEach((sec) => {
+      (sec.choices || []).forEach((c) => {
+        if (isInstallationChoice(c, sec)) installationIds.push(c.id);
+      });
+    });
+    if (!installationIds.length) return false;
+    return installationIds.some((id) => {
+      if (gsmQty[id]) return true;
+      if (choiceQty[id]) return Number(choiceQty[id] || 0) > 0;
+      if (selectedIds.includes(id)) return true;
+      return false;
+    });
+  }, [sections, isInstallationChoice, gsmQty, choiceQty, selectedIds]);
 
   const canSend = useMemo(() => {
     if (requiredMissing.length > 0) return false;
@@ -1087,6 +1146,10 @@ export default function MatrixAgent({ currentUser }) {
 
     // ✅ VALIDATION: Si promo = "Cadeaux", GSM Flex + Internet + TV requis
     if (promoSection && hasPromoSelected()) {
+      if (isCadeauxSelected && !hasCadeauxChildSelected) {
+        setErr("⚠️ Merci de sélectionner un cadeau dans la liste avant l’envoi.");
+        return;
+      }
       if (isCadeauxSelected) {
         if (gsmFlexQtyForDiscount === 0) {
           setErr("⚠️ Pour une promotion Cadeaux, sélectionnez au moins un GSM Flex.");
@@ -1125,8 +1188,17 @@ export default function MatrixAgent({ currentUser }) {
       }
     }
 
+    if (isInstallationSelected && !hasPackFlexSelected) {
+      setErr("⚠️ Pour choisir l'installation, sélectionnez d'abord un Pack Flex.");
+      return;
+    }
+
     if (isDataPhoneSelected && !dataPhoneNote.trim()) {
       setErr("⚠️ Merci de remplir le commentaire pour Data Phone.");
+      return;
+    }
+    if (!isInstallationSelected) {
+      setErr("⚠️ Vous n'avez pas choisi l'installation.");
       return;
     }
 
@@ -1413,8 +1485,19 @@ export default function MatrixAgent({ currentUser }) {
                       ? (hasChildren ? isParentVisuallySelected : isSelectedNonGsm)
                       : isParentVisuallySelected;
 
+                    const isInstallation = isInstallationChoice(c, activeSection);
+                    const isAlreadySelected = isQtyChoice
+                      ? qty > 0
+                      : secType === "multi"
+                      ? isSelectedNonGsm
+                      : currentSelectedId === c.id;
+
                     const click = () => {
                       if (!showQty) {
+                        if (isInstallation && !hasPackFlexSelected && !isAlreadySelected) {
+                          setErr("⚠️ Pour choisir l'installation, sélectionnez d'abord un Pack Flex.");
+                          return;
+                        }
                         if (isQtyChoice) {
                           setChoiceQuantity(c.id, qty > 0 ? 0 : 1, activeSection.key, secType);
                           return;

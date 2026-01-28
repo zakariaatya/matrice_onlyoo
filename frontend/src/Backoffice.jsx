@@ -11,6 +11,7 @@ export default function Backoffice() {
   const [query, setQuery] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -96,14 +97,54 @@ export default function Backoffice() {
     }
   };
 
+  const exportEmails = async () => {
+    try {
+      setError("");
+      setExporting(true);
+      const params = {};
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+      const response = await api.get("/quotes/export-emails", {
+        params,
+        responseType: "blob",
+      });
+      const disposition = response.headers?.["content-disposition"] || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = match?.[1] || "emails_agents.csv";
+      const blob = new Blob([response.data], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      setError(e?.response?.data?.error || e?.message || "Erreur export");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white border rounded-xl p-4">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="font-bold text-lg">Back-office - Devis</div>
-          <button className="px-3 py-1 rounded border" onClick={load} disabled={loading}>
-            {loading ? "Chargement..." : "Rafraichir"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="px-3 py-1 rounded border bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+              onClick={exportEmails}
+              disabled={exporting || loading}
+            >
+              {exporting ? "Export..." : "Exporter Excel"}
+            </button>
+            <button className="px-3 py-1 rounded border" onClick={load} disabled={loading}>
+              {loading ? "Chargement..." : "Rafraichir"}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "./api";
 
-const ROLES = ["ADMIN", "MANAGER", "AGENT", "BACKOFFICE"];
+const ROLES = ["ADMIN", "MANAGER", "AGENT", "FORMATION", "BACKOFFICE"];
 
 export default function Admin() {
   const [users, setUsers] = useState([]);

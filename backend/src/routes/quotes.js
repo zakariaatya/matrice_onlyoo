@@ -18,7 +18,7 @@ router.get("/ping", (req, res) => res.json({ ok: true, router: "quotes" }));
 router.get("/", requireAuth, async (req, res) => {
   try {
     const role = req.user.role;
-    const where = role === "AGENT" ? { agentId: req.user.id } : {};
+    const where = role === "AGENT" || role === "FORMATION" ? { agentId: req.user.id } : {};
 
     const quotes = await prisma.quote.findMany({
       where,
@@ -37,10 +37,89 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 /**
+ * ✅ GET /api/quotes/export-emails
+ * Exporte les emails envoyes par agent (CSV)
+ */
+router.get("/export-emails", requireAuth, requireRole("BACKOFFICE"), async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    let gte;
+    let lte;
+    if (startDate) {
+      const start = new Date(String(startDate));
+      if (!Number.isNaN(start.getTime())) {
+        start.setHours(0, 0, 0, 0);
+        gte = start;
+      }
+    }
+    if (endDate) {
+      const end = new Date(String(endDate));
+      if (!Number.isNaN(end.getTime())) {
+        end.setHours(23, 59, 59, 999);
+        lte = end;
+      }
+    }
+
+    const where = { status: "MAIL_SENT" };
+    if (gte || lte) {
+      where.createdAt = { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) };
+    }
+
+    const quotes = await prisma.quote.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { agent: { select: { id: true, name: true, email: true } } },
+    });
+
+    const escapeCsv = (value) => {
+      const str = String(value ?? "");
+      if (/[\";\n\r]/.test(str)) {
+        return `"${str.replace(/\"/g, "\"\"")}"`;
+      }
+      return str;
+    };
+
+    const header = [
+      "ID",
+      "Agent",
+      "Agent Email",
+      "Client",
+      "Client Email",
+      "Telephone",
+      "Statut",
+      "Date",
+    ];
+
+    const rows = quotes.map((q) => [
+      q.id,
+      q.agent?.name || "",
+      q.agent?.email || "",
+      q.customerName || "",
+      q.customerEmail || "",
+      q.customerPhone || "",
+      q.status || "",
+      q.createdAt ? new Date(q.createdAt).toLocaleString("fr-BE") : "",
+    ]);
+
+    const csvLines = [header, ...rows].map((line) => line.map(escapeCsv).join(";"));
+    const csvContent = `\ufeff${csvLines.join("\r\n")}\r\n`;
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="emails_agents_${stamp}.csv"`);
+    res.send(csvContent);
+  } catch (err) {
+    console.error("GET /api/quotes/export-emails ERROR =>", err);
+    res.status(500).json({ error: err?.message || "Erreur serveur" });
+  }
+});
+
+/**
  * ✅ POST /api/quotes
  * Agent crée un devis
  */
-router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
+router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res) => {
   try {
     const { customerName, customerEmail, customerPhone, choiceIds, gsmItems, qtyItems, dataPhoneNote, totalY1, totalY2 } = req.body;
 
@@ -196,8 +275,8 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
     const FROM = process.env.SMTP_FROM || process.env.SMTP_USER || "no-reply@eol-ict.net";
     const AGREEMENT_TO =
       process.env.MAIL_AGREEMENT_TO || process.env.MAIL_PREVIEW_TO || FROM;
-    const onlyooLogoPath = path.join(__dirname, "../../frontend/public/onlyoo.jpg");
-    const proximusLogoPath = path.join(__dirname, "../../frontend/public/proximus.png");
+    const onlyooLogoPath = path.join(__dirname, "../../assets/onlyoo.jpg");
+    const proximusLogoPath = path.join(__dirname, "../../assets/proximus.png");
     const hasOnlyooLogo = fs.existsSync(onlyooLogoPath);
     const hasProximusLogo = fs.existsSync(proximusLogoPath);
 
@@ -233,6 +312,23 @@ router.post("/", requireAuth, requireRole("AGENT"), async (req, res) => {
     const clientName = quote.customerName || "Client";
     const clientEmail = quote.customerEmail || "email client inconnu";
     const forcedSubject = `Offre spéciale Onlyoo - ${clientName}  à envoyer svp à : ${clientEmail}`;
+
+    if (req.user?.role === "FORMATION") {
+      const trainingQuote = await prisma.quote.update({
+        where: { id: quote.id },
+        data: { status: "DRAFT", emailContent: bodyHtml },
+        include: {
+          agent: { select: { id: true, name: true, email: true } },
+          selections: { include: { choice: { include: { section: true, parent: true } } } },
+        },
+      });
+
+      return res.status(201).json({
+        trainingMode: true,
+        message: "Mode formation: aucun email envoyé au Back-Office.",
+        quote: trainingQuote,
+      });
+    }
 
     try {
       await sendMail({
@@ -320,7 +416,7 @@ router.get("/:id/preview", requireAuth, requireRole("BACKOFFICE"), async (req, r
 
     let title = "Offre spéciale Onlyoo";
     if (hasGsm && hasPack) {
-      title = "Contrat de mise en service Pack Proximus";
+      title = "Contrat de mise en service du Pack Proximus";
     } else if (hasGsm) {
       title = "Contrat de mise en service du GSM Proximus";
     } else if (hasPack) {
