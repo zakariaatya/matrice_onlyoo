@@ -192,7 +192,7 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
     });
     console.log("Totaux calculés:", { calcY1, calcY2 });
 
-    // Remise GSM Flex: -5€ sur Y2 pour chaque quantite au-dela de 1
+    // Remise GSM Flex: -5€ sur Y1 et Y2 pour chaque quantite au-dela de 1
     let flexQty = 0;
     if (qtyByChoice.size > 0) {
       choices.forEach((c) => {
@@ -209,9 +209,21 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
     }
 
     const flexDiscount = flexQty > 1 ? (flexQty - 1) * 5 : 0;
+    const calcY1WithDiscount = calcY1 - flexDiscount;
     const calcY2WithDiscount = calcY2 - flexDiscount;
 
-    const finalY1 = typeof totalY1 === "number" && totalY1 > 0 ? totalY1 : calcY1;
+    let finalY1;
+    if (typeof totalY1 === "number" && totalY1 > 0) {
+      // Si le client n'a pas applique la remise alors qu'elle est attendue, on corrige.
+      if (flexDiscount > 0 && Math.abs(totalY1 - calcY1) < 0.01) {
+        finalY1 = calcY1WithDiscount;
+      } else {
+        finalY1 = totalY1;
+      }
+    } else {
+      finalY1 = calcY1WithDiscount;
+    }
+
     let finalY2;
     if (typeof totalY2 === "number" && totalY2 > 0) {
       // Si le client n'a pas applique la remise alors qu'elle est attendue, on corrige.

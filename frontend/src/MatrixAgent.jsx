@@ -305,8 +305,10 @@ export default function MatrixAgent({ currentUser }) {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [errKind, setErrKind] = useState("");
   const [ok, setOk] = useState("");
   const [sending, setSending] = useState(false);
+  const [attemptedSend, setAttemptedSend] = useState(false);
   const [dataPhoneNote, setDataPhoneNote] = useState("");
 
 
@@ -327,6 +329,7 @@ export default function MatrixAgent({ currentUser }) {
     let mounted = true;
     setLoading(true);
     setErr("");
+    setErrKind("");
 
     api
       .get("/matrix/runtime")
@@ -352,6 +355,7 @@ export default function MatrixAgent({ currentUser }) {
       .catch((e) => {
         if (!mounted) return;
         setErr("Erreur chargement matrice.\n" + (e?.response?.data?.error || e?.message || "500"));
+        setErrKind("system");
       })
       .finally(() => mounted && setLoading(false));
 
@@ -419,7 +423,7 @@ export default function MatrixAgent({ currentUser }) {
   }, []);
 
   const sectionKeyLower = useCallback((section) => (section?.key || "").toLowerCase(), []);
-  const isGsmFlexKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_flex_"), [sectionKeyLower]);
+  const isGsmFlexKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_flex"), [sectionKeyLower]);
   const isGsmOptKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_opt_"), [sectionKeyLower]);
   const isGsmSoloKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_solo_"), [sectionKeyLower]);
 
@@ -586,6 +590,20 @@ export default function MatrixAgent({ currentUser }) {
     [getSectionKeyForChoice, isGsmSoloSection, isGsmOptSection]
   );
 
+  const hasAvantageMultiSelected = useMemo(() => {
+    const ids = new Set();
+    const singles = selectedSingle && typeof selectedSingle === "object" ? Object.values(selectedSingle) : [];
+    const multis = selectedMulti && typeof selectedMulti === "object" ? Object.values(selectedMulti) : [];
+    singles.forEach((id) => {
+      if (id) ids.add(Number(id));
+    });
+    multis.forEach((arr) => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach((id) => ids.add(Number(id)));
+    });
+    return Array.from(ids).some((id) => choiceById.get(id)?.key === "Avantage_Multi");
+  }, [selectedSingle, selectedMulti, choiceById]);
+
   const setChoiceQuantity = useCallback(
     (choiceId, nextQty, sectionKey, sectionType) => {
       const c = choiceById.get(choiceId);
@@ -593,6 +611,11 @@ export default function MatrixAgent({ currentUser }) {
       const max = c.maxQty ? Number(c.maxQty) : null;
       const qty = Math.max(0, Number(nextQty || 0));
       const capped = max ? Math.min(qty, max) : qty;
+      if (sectionKey === "pack_type" && capped > 0 && hasAvantageMultiSelected) {
+        setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+        setErrKind("selection");
+        return;
+      }
 
       setChoiceQty((prev) => {
         let next = { ...prev };
@@ -614,7 +637,7 @@ export default function MatrixAgent({ currentUser }) {
         return next;
       });
     },
-    [choiceById, sections]
+    [choiceById, sections, hasAvantageMultiSelected]
   );
 
   const incGsm = useCallback(
@@ -642,8 +665,9 @@ export default function MatrixAgent({ currentUser }) {
       y2 += Number(c.priceY2 || 0) * q;
     });
 
-    // GSM Flex promo: -5€ sur Y2 si quantite Flex >= 2 (une seule fois)
+    // GSM Flex promo: -5€ sur Y1 et Y2 si quantite Flex >= 2 (une seule fois)
     if (gsmFlexDiscount > 0) {
+      y1 -= gsmFlexDiscount;
       y2 -= gsmFlexDiscount;
     }
 
@@ -845,21 +869,30 @@ export default function MatrixAgent({ currentUser }) {
     });
   }, [promoSelectedLabels]);
 
-
   // Selection handlers
   const toggleMulti = (sectionKey, choiceId) => {
+    if (errKind === "selection") {
+      setErr("");
+      setErrKind("");
+    }
     setSelectedMulti((prev) => {
       const cur = Array.isArray(prev[sectionKey]) ? prev[sectionKey] : [];
       const exists = cur.includes(choiceId);
+      const nextChoice = choiceById.get(Number(choiceId));
+      if (nextChoice?.key === "Avantage_Multi" && hasAnyPackTypeSelected && !exists) {
+        setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+        setErrKind("selection");
+        return cur;
+      }
 
       if (promoSection && sectionKey === promoSection.key && !exists) {
-        const nextChoice = choiceById.get(Number(choiceId));
         const label = (nextChoice?.label || "").toLowerCase();
         const is6 = label.includes("6 mois") || label.includes("6mois");
         const is12 = label.includes("12 mois") || label.includes("12mois");
         const isCadeaux = label.includes("cadeaux");
         const isSansPromo = label.includes("sans promo");
         const isMobileFlex = nextChoice?.key === "Promotion_Mobile_Flex";
+        const isAvantageMulti = nextChoice?.key === "Avantage_Multi";
 
         const hasCadeaux = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
         const hasSansPromo = promoSelectedLabels.some((l) => l.toLowerCase().includes("sans promo"));
@@ -869,18 +902,32 @@ export default function MatrixAgent({ currentUser }) {
 
         if (is6 && isPromo12Mois) {
           setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
+          setErrKind("selection");
           return cur;
         }
         if (is12 && isPromo6Mois) {
           setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
+          setErrKind("selection");
           return cur;
         }
         if ((isCadeaux || isSansPromo) && hasMobileFlex) {
           setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
+          setErrKind("selection");
           return cur;
         }
         if (isMobileFlex && (hasCadeaux || hasSansPromo)) {
           setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
+          setErrKind("selection");
+          return cur;
+        }
+        if (isAvantageMulti && hasAnyPackTypeSelected) {
+          setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+          setErrKind("selection");
+          return cur;
+        }
+        if (isAvantageMulti && gsmFlexQtyForDiscount === 0) {
+          setErr("⚠️ Pour Avantage Multi, sélectionnez au moins un GSM Flex.");
+          setErrKind("selection");
           return cur;
         }
 
@@ -904,6 +951,11 @@ export default function MatrixAgent({ currentUser }) {
 
       if (sectionKey === "pack_type") {
         const choice = choiceById.get(Number(choiceId));
+        if (choice && isFlexPackChoice(choice) && hasAvantageMultiSelected && !exists) {
+          setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+          setErrKind("selection");
+          return cur;
+        }
         const isInternetPack = choice && internetPackKeys.has(choice.key);
         if (isInternetPack && !exists) {
           // Remplacer tout autre choix Internet par le nouveau
@@ -921,6 +973,23 @@ export default function MatrixAgent({ currentUser }) {
   };
 
   const setSingle = (sectionKey, choiceId) => {
+    if (errKind === "selection") {
+      setErr("");
+      setErrKind("");
+    }
+    const choice = choiceId ? choiceById.get(Number(choiceId)) : null;
+    if (choice?.key === "Avantage_Multi" && hasAnyPackTypeSelected) {
+      setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+      setErrKind("selection");
+      return;
+    }
+    if (sectionKey === "pack_type" && choiceId) {
+      if (choice && hasAvantageMultiSelected) {
+        setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+        setErrKind("selection");
+        return;
+      }
+    }
     setSelectedSingle((prev) => ({ ...prev, [sectionKey]: choiceId }));
   };
 
@@ -931,6 +1000,8 @@ export default function MatrixAgent({ currentUser }) {
     setChoiceQty({});
     setOk("");
     setErr("");
+    setErrKind("");
+    setAttemptedSend(false);
   };
 
 
@@ -1071,6 +1142,19 @@ export default function MatrixAgent({ currentUser }) {
     });
   }, [sections, isDataPhoneSection, gsmQty, choiceQty, selectedIds]);
 
+  const isSoloWithDataPhone = useMemo(() => {
+    return gsmTotals.soloQty > 0 && isDataPhoneSelected;
+  }, [gsmTotals.soloQty, isDataPhoneSelected]);
+
+  const isFlexPackChoice = useCallback(
+    (choice) => {
+      const key = String(choice?.key || "").toLowerCase();
+      const label = String(choice?.label || "").toLowerCase();
+      return key.includes("flex") || label.includes("flex");
+    },
+    []
+  );
+
   const hasPackFlexSelected = useMemo(() => {
     const packSec = sections.find((s) => s.key === "pack_type") || null;
     if (!packSec) return false;
@@ -1081,15 +1165,24 @@ export default function MatrixAgent({ currentUser }) {
         : selectedSingle[packSec.key]
         ? [selectedSingle[packSec.key]]
         : [];
+    if (ids.length === 0) return false;
+    return ids.some((id) => isFlexPackChoice(choiceById.get(Number(id))));
+  }, [sections, selectedSingle, selectedMulti, choiceById, isFlexPackChoice, sectionHasToken]);
+
+  const hasAnyPackTypeSelected = useMemo(() => {
+    const packSec = sections.find((s) => s.key === "pack_type") || null;
+    if (!packSec) return false;
+    const secType = packSec.type || "single";
+    const ids =
+      secType === "multi"
+        ? (selectedMulti[packSec.key] || [])
+        : selectedSingle[packSec.key]
+        ? [selectedSingle[packSec.key]]
+        : [];
     if (ids.length > 0) return true;
-    return ids.some((id) => {
-      const c = choiceById.get(Number(id));
-      if (!c) return false;
-      const key = String(c.key || "").toLowerCase();
-      const label = String(c.label || "").toLowerCase();
-      return key.includes("packflex") || label.includes("pack flex") || label.includes("packflex");
-    });
-  }, [sections, selectedSingle, selectedMulti, choiceById, sectionHasToken]);
+    const packChoiceIds = (packSec.choices || []).map((c) => c.id);
+    return packChoiceIds.some((id) => Number(choiceQty[id] || 0) > 0);
+  }, [sections, selectedSingle, selectedMulti, choiceQty]);
 
   const isInstallationSelected = useMemo(() => {
     const installationIds = [];
@@ -1108,7 +1201,7 @@ export default function MatrixAgent({ currentUser }) {
   }, [sections, isInstallationChoice, gsmQty, choiceQty, selectedIds]);
 
   const getValidationError = useCallback(() => {
-    if (requiredMissing.length > 0 || !isClientFormatOk || !hasAnySelection) {
+    if (attemptedSend && (requiredMissing.length > 0 || !isClientFormatOk || !hasAnySelection)) {
       return (
         "⚠️ Champs requis manquants / format invalide / pas de sélection.\n" +
         (requiredMissing.length ? `Manquant: ${requiredMissing.join(", ")}\n` : "") +
@@ -1117,7 +1210,7 @@ export default function MatrixAgent({ currentUser }) {
       );
     }
 
-    if (promoSection && !hasPromoSelected()) {
+    if (promoSection && !hasPromoSelected() && !hasAvantageMultiSelected) {
       return "⚠️ Vous devez sélectionner au minimum une promotion avant l’envoi de l’offre.";
     }
 
@@ -1145,6 +1238,18 @@ export default function MatrixAgent({ currentUser }) {
             : [];
         return ids.some((id) => choiceById.get(id)?.key === "Promotion_Mobile_Flex");
       })();
+      const isAvantageMulti = (() => {
+        if (!promoSection) return false;
+        const secKey = promoSection.key;
+        const secType = promoSection.type || "single";
+        const ids =
+          secType === "multi"
+            ? (selectedMulti[secKey] || []).map((id) => Number(id))
+            : selectedSingle[secKey]
+            ? [Number(selectedSingle[secKey])]
+            : [];
+        return ids.some((id) => choiceById.get(id)?.key === "Avantage_Multi");
+      })();
       const hasSansPromoSelected = promoSelectedLabels.some((l) => l.toLowerCase().includes("sans promo"));
       const hasCadeauxSelected = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
       if (isPremierMobileFlex && (hasCadeauxSelected || hasSansPromoSelected)) {
@@ -1155,6 +1260,12 @@ export default function MatrixAgent({ currentUser }) {
       }
       if (isPremierMobileFlex && gsmFlexQtyForDiscount === 0) {
         return "⚠️ Pour la promo Premier Mobile Flex, sélectionnez au moins un GSM Flex.";
+      }
+      if (isAvantageMulti && hasAnyPackTypeSelected) {
+        return "⚠️ Avantage Multi n'est pas compatible avec Pack Flex.";
+      }
+      if (isAvantageMulti && gsmFlexQtyForDiscount === 0) {
+        return "⚠️ Pour Avantage Multi, sélectionnez au moins un GSM Flex.";
       }
     }
 
@@ -1172,6 +1283,7 @@ export default function MatrixAgent({ currentUser }) {
 
     return "";
   }, [
+    attemptedSend,
     requiredMissing,
     isClientFormatOk,
     hasAnySelection,
@@ -1190,16 +1302,22 @@ export default function MatrixAgent({ currentUser }) {
     isPromo12Mois,
     isInstallationSelected,
     hasPackFlexSelected,
+    hasAnyPackTypeSelected,
     isDataPhoneSelected,
     dataPhoneNote,
   ]);
 
   // Auto-update/clear alert when corrected
   useEffect(() => {
-    if (!err) return;
+    if (!err || errKind !== "validation") return;
     const nextErr = getValidationError();
+    if (!nextErr) {
+      setErr("");
+      setErrKind("");
+      return;
+    }
     if (nextErr !== err) setErr(nextErr);
-  }, [err, getValidationError]);
+  }, [err, errKind, getValidationError]);
 
   const canSend = useMemo(() => {
     if (requiredMissing.length > 0) return false;
@@ -1211,12 +1329,15 @@ export default function MatrixAgent({ currentUser }) {
   const sendToBackOffice = async () => {
     if (sending) return;
     setErr("");
+    setErrKind("");
     setOk("");
+    setAttemptedSend(true);
 
     const validationError = getValidationError();
     if (validationError) {
       validateClient(client);
       setErr(validationError);
+      setErrKind("validation");
       return;
     }
 
@@ -1269,11 +1390,13 @@ export default function MatrixAgent({ currentUser }) {
         setDataPhoneNote("");
         setOk("");
         setErr("");
+        setErrKind("");
         setSending(false);
       }, 3000);
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || "500";
       setErr("⚠️ Erreur envoi devis (Back-Office).\n" + msg);
+      setErrKind("system");
       setSending(false);
     }
   };
@@ -1514,6 +1637,7 @@ export default function MatrixAgent({ currentUser }) {
                       if (!showQty) {
                         if (isInstallation && !hasPackFlexSelected && !isAlreadySelected) {
                           setErr("⚠️ Pour choisir l'installation, sélectionnez d'abord un Pack Flex.");
+                          setErrKind("selection");
                           return;
                         }
                         if (isQtyChoice) {
@@ -1540,6 +1664,7 @@ export default function MatrixAgent({ currentUser }) {
                             );
                             if (hasCadeauxSelected || hasSansPromoSelected) {
                               setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
+                              setErrKind("selection");
                               return;
                             }
                           }
@@ -1750,7 +1875,16 @@ export default function MatrixAgent({ currentUser }) {
                         </div>
                       </div>
                       <div style={{ textAlign: "right", opacity: 0.9 }}>
-                        <div>Y1 {money(Number(it.y1 || 0) * Number(it.qty || 1))}</div>
+                        <div>
+                          Y1{" "}
+                          {money(
+                            Math.max(
+                              0,
+                              Number(it.y1 || 0) * Number(it.qty || 1) -
+                                (summaryFlexDiscountByIndex.get(idx) || 0)
+                            )
+                          )}
+                        </div>
                         <div>
                           Y2{" "}
                           {money(
@@ -1782,6 +1916,10 @@ export default function MatrixAgent({ currentUser }) {
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 16, fontWeight: 950 }}>{money(totals.y2)}</div>
                       </div>
+                    ) : isSoloWithDataPhone ? (
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 16, fontWeight: 950 }}>{money(totals.y2)}</div>
+                      </div>
                     ) : isPromo6Mois ? (
                       <>
                         <div style={{ flex: 1 }}>
@@ -1808,18 +1946,29 @@ export default function MatrixAgent({ currentUser }) {
                   </div>
                   {gsmFlexDiscount > 0 ? (
                     <div style={{ ...styles.tiny, marginTop: 8, color: "#bfe0ff" }}>
-                      Promo GSM Flex appliquée: -{money(gsmFlexDiscount)} sur Y2
+                      Promo GSM Flex appliquée: -{money(gsmFlexDiscount)} sur Y1 et Y2
                     </div>
                   ) : null}
                 </div>
 
                 <div style={styles.card}>
                   <p style={styles.cardTitle}>⚠️ Alerte (rappel)</p>
-                  <div style={err ? styles.alertBoxError : styles.alertBox}>
-                    {err || computedAlert}
+                  <div
+                    style={
+                      err && (errKind === "selection" || (attemptedSend && errKind === "validation") || errKind === "system")
+                        ? styles.alertBoxError
+                        : styles.alertBox
+                    }
+                  >
+                    {(err &&
+                      (errKind === "selection" || (attemptedSend && errKind === "validation") || errKind === "system") &&
+                      err) ||
+                      computedAlert}
                   </div>
                   <div style={{ ...styles.tiny, marginTop: 4 }}>
-                    {err ? "❌ Erreur de validation" : "✅ Règles automatiques"}
+                    {err && (errKind === "selection" || (attemptedSend && errKind === "validation") || errKind === "system")
+                      ? "❌ Erreur de validation"
+                      : "✅ Règles automatiques"}
                   </div>
                 </div>
 
