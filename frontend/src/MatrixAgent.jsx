@@ -309,6 +309,7 @@ export default function MatrixAgent({ currentUser }) {
   const [sending, setSending] = useState(false);
   const [dataPhoneNote, setDataPhoneNote] = useState("");
 
+
   const validateClient = useCallback((c) => {
     const emailOk = isValidEmail(c.email);
     const phoneOk = isValidBeMobile(c.phone);
@@ -714,14 +715,11 @@ export default function MatrixAgent({ currentUser }) {
 
   const hasPromoSelected = useCallback(() => {
     if (!promoSection) return false;
-    const secKey = promoSection.key;
-    const secType = promoSection.type || "single";
-    if (secType === "multi") {
-      const promoSelections = selectedMulti[secKey] || [];
-      return promoSelections.length > 0;
-    }
-    return !!selectedSingle[secKey];
-  }, [promoSection, selectedMulti, selectedSingle]);
+    return selectedIds.some((id) => {
+      const c = choiceById.get(Number(id));
+      return c && Number(c.sectionId) === Number(promoSection.id);
+    });
+  }, [promoSection, selectedIds, choiceById]);
 
   // Selected Promotion Label
   const selectedPromoLabel = useMemo(() => {
@@ -1109,55 +1107,30 @@ export default function MatrixAgent({ currentUser }) {
     });
   }, [sections, isInstallationChoice, gsmQty, choiceQty, selectedIds]);
 
-  const canSend = useMemo(() => {
-    if (requiredMissing.length > 0) return false;
-    if (!isClientFormatOk) return false;
-    if (!hasAnySelection) return false;
-    return true;
-  }, [requiredMissing, isClientFormatOk, hasAnySelection]);
-
-  const sendToBackOffice = async () => {
-    if (sending) return;
-    setErr("");
-    setOk("");
-
-    if (!canSend) {
-      validateClient(client);
-      setErr(
+  const getValidationError = useCallback(() => {
+    if (requiredMissing.length > 0 || !isClientFormatOk || !hasAnySelection) {
+      return (
         "⚠️ Champs requis manquants / format invalide / pas de sélection.\n" +
         (requiredMissing.length ? `Manquant: ${requiredMissing.join(", ")}\n` : "") +
         (!isClientFormatOk ? "Format invalide: email ou mobile.\n" : "") +
         (!hasAnySelection ? "Sélectionne au moins une option." : "")
       );
-      return;
     }
 
-    const okClient = validateClient(client);
-    if (!okClient) {
-      setErr("⚠️ Email ou téléphone invalide. Corrige les champs avant d'envoyer.");
-      return;
-    }
-
-    // ✅ VALIDATION STATIQUE: Vérifier qu'au moins une promotion est sélectionnée
     if (promoSection && !hasPromoSelected()) {
-      setErr("⚠️ Vous devez sélectionner au minimum une promotion avant l’envoi de l’offre.");
-      return;
+      return "⚠️ Vous devez sélectionner au minimum une promotion avant l’envoi de l’offre.";
     }
 
-    // ✅ VALIDATION: Si promo = "Cadeaux", GSM Flex + Internet + TV requis
     if (promoSection && hasPromoSelected()) {
       if (isCadeauxSelected && !hasCadeauxChildSelected) {
-        setErr("⚠️ Merci de sélectionner un cadeau dans la liste avant l’envoi.");
-        return;
+        return "⚠️ Merci de sélectionner un cadeau dans la liste avant l’envoi.";
       }
       if (isCadeauxSelected) {
         if (gsmFlexQtyForDiscount === 0) {
-          setErr("⚠️ Pour une promotion Cadeaux, sélectionnez au moins un GSM Flex.");
-          return;
+          return "⚠️ Pour une promotion Cadeaux, sélectionnez au moins un GSM Flex.";
         }
         if (!hasTvPackSelected || !hasInternetPackSelected) {
-          setErr("⚠️ Pour une promotion Cadeaux, sélectionnez 1 TV Proximus et 1 Internet dans Pack Flex.");
-          return;
+          return "⚠️ Pour une promotion Cadeaux, sélectionnez 1 TV Proximus et 1 Internet dans Pack Flex.";
         }
       }
       const isPremierMobileFlex = (() => {
@@ -1175,30 +1148,75 @@ export default function MatrixAgent({ currentUser }) {
       const hasSansPromoSelected = promoSelectedLabels.some((l) => l.toLowerCase().includes("sans promo"));
       const hasCadeauxSelected = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
       if (isPremierMobileFlex && (hasCadeauxSelected || hasSansPromoSelected)) {
-        setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
-        return;
+        return "⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.";
       }
       if (isPromo6Mois && isPromo12Mois) {
-        setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
-        return;
+        return "⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.";
       }
       if (isPremierMobileFlex && gsmFlexQtyForDiscount === 0) {
-        setErr("⚠️ Pour la promo Premier Mobile Flex, sélectionnez au moins un GSM Flex.");
-        return;
+        return "⚠️ Pour la promo Premier Mobile Flex, sélectionnez au moins un GSM Flex.";
       }
     }
 
     if (isInstallationSelected && !hasPackFlexSelected) {
-      setErr("⚠️ Pour choisir l'installation, sélectionnez d'abord un Pack Flex.");
-      return;
+      return "⚠️ Pour choisir l'installation, sélectionnez d'abord un Pack Flex.";
     }
 
     if (isDataPhoneSelected && !dataPhoneNote.trim()) {
-      setErr("⚠️ Merci de remplir le commentaire pour Data Phone.");
-      return;
+      return "⚠️ Merci de remplir le commentaire pour Data Phone.";
     }
+
     if (!isInstallationSelected) {
-      setErr("⚠️ Vous n'avez pas choisi l'installation.");
+      return "⚠️ Vous n'avez pas choisi l'installation.";
+    }
+
+    return "";
+  }, [
+    requiredMissing,
+    isClientFormatOk,
+    hasAnySelection,
+    promoSection,
+    hasPromoSelected,
+    isCadeauxSelected,
+    hasCadeauxChildSelected,
+    gsmFlexQtyForDiscount,
+    hasTvPackSelected,
+    hasInternetPackSelected,
+    selectedMulti,
+    selectedSingle,
+    choiceById,
+    promoSelectedLabels,
+    isPromo6Mois,
+    isPromo12Mois,
+    isInstallationSelected,
+    hasPackFlexSelected,
+    isDataPhoneSelected,
+    dataPhoneNote,
+  ]);
+
+  // Auto-update/clear alert when corrected
+  useEffect(() => {
+    if (!err) return;
+    const nextErr = getValidationError();
+    if (nextErr !== err) setErr(nextErr);
+  }, [err, getValidationError]);
+
+  const canSend = useMemo(() => {
+    if (requiredMissing.length > 0) return false;
+    if (!isClientFormatOk) return false;
+    if (!hasAnySelection) return false;
+    return true;
+  }, [requiredMissing, isClientFormatOk, hasAnySelection]);
+
+  const sendToBackOffice = async () => {
+    if (sending) return;
+    setErr("");
+    setOk("");
+
+    const validationError = getValidationError();
+    if (validationError) {
+      validateClient(client);
+      setErr(validationError);
       return;
     }
 
@@ -1505,6 +1523,10 @@ export default function MatrixAgent({ currentUser }) {
                         if (secType === "multi") {
                           toggleMulti(activeSection.key, c.id);
                         } else {
+                          if (isParentVisuallySelected) {
+                            setSingle(activeSection.key, "");
+                            return;
+                          }
                           if (
                             promoSection &&
                             activeSection.key === promoSection.key &&

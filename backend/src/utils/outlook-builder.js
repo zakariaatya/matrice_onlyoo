@@ -161,7 +161,7 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
     ? `Je confirme mon accord pour votre offre speciale du pack proximus, au tarif de ${MONEY(quote.totalY2)} euro/mois, ${quote.customerName}.`
     : `Je confirme mon accord pour votre offre speciale du pack proximus, au tarif de ${MONEY(quote.totalY1)} euro/mois pendant ${duration} mois. Suivi d'un tarif mensuel de ${MONEY(quote.totalY2)} euro/mois, ${quote.customerName}.`;
 
-  const mailtoSubject = `Offre Onlyoo, Commercial : ${agent?.name || ""}`;
+  const mailtoSubject = `Bon pour accord offre Onlyoo,Commercial : ${agent?.name || ""}`;
   const mailtoTo = String(boEmail || "").trim();
   const mailtoLink = `mailto:${mailtoTo}?subject=${encodeURIComponent(mailtoSubject)}&body=${encodeURIComponent(mailtoBody)}`;
 
@@ -299,15 +299,6 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
                                 <tr>
                                     <td style="padding: 28px 24px;">
                                         
-                                        <!-- Titre validation -->
-                                        <table width="100%" border="0" cellpadding="0" cellspacing="0">
-                                            <tr>
-                                                <td align="center" style="font-size: 20px; font-weight: bold; color: #0077CC; font-family: Arial, sans-serif; padding-bottom: 10px;">
-                                                    Validation de votre accord
-                                                </td>
-                                            </tr>
-                                        </table>
-                                        
                                         <!-- Texte explicatif -->
                                         <table width="100%" border="0" cellpadding="0" cellspacing="0">
                                             <tr>
@@ -439,7 +430,7 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
                                             </tr>
                                             <tr>
                                                 <td style="font-size: 14px; color: #333333; font-family: Arial, sans-serif; padding-bottom: 5px;">
-                                                    <strong>Onlyoo</strong> <strong style="color: #666666;">Proximus Partenaire</strong>
+                                                    <strong>Onlyoo</strong> <strong style="color: #666666;">Proximus partner</strong>
                                                 </td>
                                             </tr>
                                             <tr>

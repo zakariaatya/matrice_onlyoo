@@ -309,9 +309,8 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
     const { text: bodyText } = buildPlainText({ quote, agent: quote.agent, choices: sortedChoices });
 
     const fixedTo = process.env.MAIL_PREVIEW_TO || FROM;
-    const clientName = quote.customerName || "Client";
     const clientEmail = quote.customerEmail || "email client inconnu";
-    const forcedSubject = `Offre spéciale Onlyoo - ${clientName}  à envoyer svp à : ${clientEmail}`;
+    const forcedSubject = `${subject} - ${clientEmail}`;
 
     if (req.user?.role === "FORMATION") {
       const trainingQuote = await prisma.quote.update({

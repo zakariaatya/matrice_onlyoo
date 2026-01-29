@@ -99,26 +99,10 @@ function buildMjmlTemplate({ quote, agent, choices, boEmail }) {
       </mj-column>
     </mj-section>
 
-    <!-- Appel à l'action - Boîte jaune -->
-    <mj-section background-color="white" padding="30px">
-      <mj-column>
-        <mj-section background-color="#fffbea" border="2px solid #ffc107" border-radius="8px" padding="24px">
-          <mj-column>
-            <mj-text font-size="15px" font-weight="bold" color="#856404" margin="0 0 12px 0">
-              ⚠️ VALIDATION DE VOTRE ACCORD
-            </mj-text>
-            <mj-text font-size="14px" color="#856404" line-height="1.6" margin="0">
-              Afin de finaliser votre souscription à cette offre, veuillez confirmer votre accord en répondant à ce mail avec la mention <strong>« Bon pour accord »</strong> suivi de votre nom et prénom.
-            </mj-text>
-          </mj-column>
-        </mj-section>
-      </mj-column>
-    </mj-section>
-
     <!-- Bouton de confirmation -->
     <mj-section background-color="white" padding="30px">
       <mj-column>
-        <mj-button background-color="#1976d2" color="white" font-weight="bold" font-size="18px" padding="16px 40px" border-radius="8px" href="mailto:${boEmail}?subject=${encodeURIComponent(`Offre Onlyoo, Commercial : ${agent?.name || ""}`)}&body=Bonjour%2C%0A%0AJe%20confirme%20mon%20accord%20pour%20votre%20offre%20sp%C3%A9ciale%20Proximus.%0A%0ACordialement%2C">
+        <mj-button background-color="#1976d2" color="white" font-weight="bold" font-size="18px" padding="16px 40px" border-radius="8px" href="mailto:${boEmail}?subject=${encodeURIComponent(`Bon pour accord offre Onlyoo,Commercial : ${agent?.name || ""}`)}&body=Bonjour%2C%0A%0AJe%20confirme%20mon%20accord%20pour%20votre%20offre%20sp%C3%A9ciale%20Proximus.%0A%0ACordialement%2C">
           ✓ CONFIRMER MON ACCORD
         </mj-button>
         <mj-text font-size="12px" color="#999999" align="center" margin="12px 0 0 0">
