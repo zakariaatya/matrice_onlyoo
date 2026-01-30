@@ -262,7 +262,9 @@ function isValidEmail(v) {
 }
 function isValidBeMobile(v) {
   const digits = normalizeBeMobile(v);
-  return digits.startsWith("04") && digits.length === 10;
+  if (!(digits.startsWith("04") && digits.length === 10)) return false;
+  if (digits === "0400000000") return false;
+  return true;
 }
 
 // Fonction pour obtenir l'icône de section

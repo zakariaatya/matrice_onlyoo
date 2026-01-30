@@ -430,7 +430,7 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
                                             </tr>
                                             <tr>
                                                 <td style="font-size: 14px; color: #333333; font-family: Arial, sans-serif; padding-bottom: 5px;">
-                                                    <strong>Onlyoo</strong> <strong style="color: #666666;">Proximus partner</strong>
+                                                    <strong style="color: #666666;">Onlyoo</strong> <strong style="color: #666666;">Proximus partner</strong>
                                                 </td>
                                             </tr>
                                             <tr>
