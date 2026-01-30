@@ -338,6 +338,9 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
         trainingMode: true,
         message: "Mode formation: aucun email envoyé au Back-Office.",
         quote: trainingQuote,
+        emailHtml: bodyHtml,
+        emailText: bodyText,
+        subject: forcedSubject,
       });
     }
 
@@ -363,7 +366,12 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
         data: { status: "MAIL_SENT", emailContent: bodyHtml },
       });
 
-      res.status(201).json({ quote: { ...quote, status: "MAIL_SENT" } });
+      res.status(201).json({
+        quote: { ...quote, status: "MAIL_SENT" },
+        emailHtml: bodyHtml,
+        emailText: bodyText,
+        subject: forcedSubject,
+      });
     } catch (err) {
       console.error("SMTP send failed:", err?.message || err);
       await prisma.quote.update({
@@ -373,6 +381,9 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
       res.status(502).json({
         error: "Envoi email échoué. Le devis reste en attente (Backoffice).",
         quoteId: quote.id,
+        emailHtml: bodyHtml,
+        emailText: bodyText,
+        subject: forcedSubject,
       });
     }
   } catch (err) {

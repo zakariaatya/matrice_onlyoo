@@ -215,6 +215,16 @@ const GSM_FLEX_MAX = 6;
         color: "white",
       };
     }
+    if (variant === "preview") {
+      return {
+        ...base,
+        background: "linear-gradient(135deg, rgba(34,197,94,0.95), rgba(16,185,129,0.85))",
+        color: "#ffffff",
+        border: "1px solid rgba(16,185,129,0.65)",
+        boxShadow: "0 6px 16px rgba(16,185,129,0.25)",
+        textShadow: "0 1px 2px rgba(0,0,0,0.35)",
+      };
+    }
     return { ...base, background: "rgba(255,255,255,0.06)", color: "#e8eefc" };
   },
 
@@ -309,6 +319,8 @@ export default function MatrixAgent({ currentUser }) {
   const [err, setErr] = useState("");
   const [errKind, setErrKind] = useState("");
   const [ok, setOk] = useState("");
+  const [lastSentPreviewHtml, setLastSentPreviewHtml] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
   const [sending, setSending] = useState(false);
   const [attemptedSend, setAttemptedSend] = useState(false);
   const [dataPhoneNote, setDataPhoneNote] = useState("");
@@ -1001,9 +1013,16 @@ export default function MatrixAgent({ currentUser }) {
     setGsmQty({});
     setChoiceQty({});
     setOk("");
+    setLastSentPreviewHtml("");
+    setShowPreview(false);
     setErr("");
     setErrKind("");
     setAttemptedSend(false);
+  };
+
+  const resetClientInfo = () => {
+    setClient({ civility: "", lastName: "", firstName: "", email: "", phone: "" });
+    setClientErrors({ email: "", phone: "" });
   };
 
 
@@ -1157,19 +1176,48 @@ export default function MatrixAgent({ currentUser }) {
     []
   );
 
+  const isPackFlexSection = useCallback(
+    (section) => {
+      const key = String(section?.key || "").toLowerCase();
+      const title = String(section?.title || "").toLowerCase();
+      if (key.includes("pack_flex")) return true;
+      return (key.includes("pack") && key.includes("flex")) || (title.includes("pack") && title.includes("flex"));
+    },
+    []
+  );
+
   const hasPackFlexSelected = useMemo(() => {
-    const packSec = sections.find((s) => s.key === "pack_type") || null;
-    if (!packSec) return false;
-    const secType = packSec.type || "single";
-    const ids =
-      secType === "multi"
-        ? (selectedMulti[packSec.key] || [])
-        : selectedSingle[packSec.key]
-        ? [selectedSingle[packSec.key]]
-        : [];
-    if (ids.length === 0) return false;
-    return ids.some((id) => isFlexPackChoice(choiceById.get(Number(id))));
-  }, [sections, selectedSingle, selectedMulti, choiceById, isFlexPackChoice, sectionHasToken]);
+    const packSections = sections.filter((s) => s.key === "pack_type" || isPackFlexSection(s));
+    if (packSections.length === 0) return false;
+
+    return packSections.some((sec) => {
+      const secType = sec.type || "single";
+      const ids =
+        secType === "multi"
+          ? (selectedMulti[sec.key] || [])
+          : selectedSingle[sec.key]
+          ? [selectedSingle[sec.key]]
+          : [];
+      if (ids.length > 0) {
+        return ids.some((id) => isFlexPackChoice(choiceById.get(Number(id))));
+      }
+      const secChoiceIds = (sec.choices || []).map((c) => c.id);
+      return secChoiceIds.some(
+        (id) =>
+          Number(choiceQty[id] || 0) > 0 ||
+          selectedIds.includes(id)
+      );
+    });
+  }, [
+    sections,
+    selectedSingle,
+    selectedMulti,
+    choiceById,
+    isFlexPackChoice,
+    isPackFlexSection,
+    choiceQty,
+    selectedIds,
+  ]);
 
   const hasAnyPackTypeSelected = useMemo(() => {
     const packSec = sections.find((s) => s.key === "pack_type") || null;
@@ -1201,6 +1249,69 @@ export default function MatrixAgent({ currentUser }) {
       return false;
     });
   }, [sections, isInstallationChoice, gsmQty, choiceQty, selectedIds]);
+
+  const isGsmFlexOrSoloSelected = useMemo(() => {
+    if (gsmTotals.flexQty > 0 || gsmTotals.soloQty > 0) return true;
+    const gsmMainIds = [];
+    sections.forEach((sec) => {
+      if (!isGsmFlexKey(sec) && !isGsmSoloKey(sec)) return;
+      (sec.choices || []).forEach((c) => gsmMainIds.push(c.id));
+    });
+    if (!gsmMainIds.length) return false;
+    return gsmMainIds.some((id) => {
+      if (choiceQty[id]) return Number(choiceQty[id] || 0) > 0;
+      if (selectedIds.includes(id)) return true;
+      return false;
+    });
+  }, [
+    sections,
+    isGsmFlexKey,
+    isGsmSoloKey,
+    gsmTotals.flexQty,
+    gsmTotals.soloQty,
+    choiceQty,
+    selectedIds,
+  ]);
+
+  const hasNonGsmFlexSoloSelection = useMemo(() => {
+    const isNonFlexSoloChoice = (choiceId) => {
+      const c = choiceById.get(Number(choiceId));
+      if (!c) return false;
+      const sec = sections.find((s) => s.id === c.sectionId);
+      if (!sec) return false;
+      if (promoSection && Number(sec.id) === Number(promoSection.id)) {
+        // Promotions don't require installation when GSM Flex/Solo is selected alone.
+        return false;
+      }
+      return !isGsmFlexKey(sec) && !isGsmSoloKey(sec);
+    };
+
+    for (const id of selectedIds) {
+      if (isNonFlexSoloChoice(id)) return true;
+    }
+
+    for (const [idStr, qty] of Object.entries(choiceQty)) {
+      if (Number(qty || 0) <= 0) continue;
+      if (isNonFlexSoloChoice(idStr)) return true;
+    }
+
+    for (const [idStr, qty] of Object.entries(gsmQty)) {
+      if (Number(qty || 0) <= 0) continue;
+      if (isNonFlexSoloChoice(idStr)) return true;
+    }
+
+    return false;
+  }, [
+    selectedIds,
+    choiceQty,
+    gsmQty,
+    choiceById,
+    sections,
+    isGsmFlexKey,
+    isGsmSoloKey,
+    promoSection,
+    isCadeauxSelected,
+  ]);
 
   const getValidationError = useCallback(() => {
     if (attemptedSend && (requiredMissing.length > 0 || !isClientFormatOk || !hasAnySelection)) {
@@ -1279,7 +1390,10 @@ export default function MatrixAgent({ currentUser }) {
       return "⚠️ Merci de remplir le commentaire pour Data Phone.";
     }
 
-    if (!isInstallationSelected) {
+    if (
+      !isInstallationSelected &&
+      (!isGsmFlexOrSoloSelected || hasNonGsmFlexSoloSelection)
+    ) {
       return "⚠️ Vous n'avez pas choisi l'installation.";
     }
 
@@ -1303,6 +1417,8 @@ export default function MatrixAgent({ currentUser }) {
     isPromo6Mois,
     isPromo12Mois,
     isInstallationSelected,
+    isGsmFlexOrSoloSelected,
+    hasNonGsmFlexSoloSelection,
     hasPackFlexSelected,
     hasAnyPackTypeSelected,
     isDataPhoneSelected,
@@ -1378,23 +1494,15 @@ export default function MatrixAgent({ currentUser }) {
       const { data } = await api.post("/quotes/", payload);
 
       setOk(
-        `✅ Devis envoyé au Back-Office avec succès!\n` +
+        `✅ Offre envoyé au Back-Office avec succès!\n` +
         `ID: ${data?.quote?.id || data?.id || "id inconnu"}\n` +
-        `Total Y1: ${money(totals.y1)} | Total Y2: ${money(totals.y2)}\n` +
-        `Réinitialisation automatique dans 3 secondes.`
+        `Total Y1: ${money(totals.y1)} | Total Y2: ${money(totals.y2)}`
       );
-
-      // ✅ AUTO-CLEAR: Réinitialiser toutes les informations après envoi réussi
-      setTimeout(() => {
-        resetSelection();
-        setClient({ civility: "", lastName: "", firstName: "", email: "", phone: "" });
-        setClientErrors({ email: "", phone: "" });
-        setDataPhoneNote("");
-        setOk("");
-        setErr("");
-        setErrKind("");
-        setSending(false);
-      }, 3000);
+      const previewHtml =
+        data?.emailHtml || data?.emailContent || data?.quote?.emailContent || "";
+      setLastSentPreviewHtml(previewHtml);
+      setShowPreview(false);
+      setSending(false);
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || "500";
       setErr("⚠️ Erreur envoi devis (Back-Office).\n" + msg);
@@ -1412,9 +1520,9 @@ export default function MatrixAgent({ currentUser }) {
             <h1 style={styles.h1}>Matrice Proximus</h1>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={styles.badge}>
-                👤 {currentUser?.name || "Utilisateur"}
-              </div>
+              <button style={styles.btn("secondary")} onClick={resetClientInfo} type="button">
+                🧹 Clear Client
+              </button>
             </div>
           </div>
 
@@ -1535,7 +1643,7 @@ export default function MatrixAgent({ currentUser }) {
             <div style={styles.divider} />
 
             <button style={styles.btn("secondary")} onClick={resetSelection} type="button">
-              🔄 Réinitialiser
+              🔄 Réinitialiser les choix
             </button>
           </div>
 
@@ -2003,13 +2111,25 @@ export default function MatrixAgent({ currentUser }) {
                       borderRadius: 12,
                       background: "rgba(0,255,170,0.15)",
                       border: "1px solid rgba(0,255,170,0.30)",
-                      color: "#c9ffef",
+                      color: "#rgb(255 255 255)",
                       fontSize: 11,
                       whiteSpace: "pre-wrap",
                       fontWeight: 600,
                     }}
                   >
                     {ok}
+                  </div>
+                ) : null}
+
+                {lastSentPreviewHtml ? (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      style={styles.btn("preview")}
+                      onClick={() => setShowPreview((v) => !v)}
+                      type="button"
+                    >
+                      📧 Aperçu de l’e-mail
+                    </button>
                   </div>
                 ) : null}
 
@@ -2026,6 +2146,80 @@ export default function MatrixAgent({ currentUser }) {
         </div> */}
         </div>
       </div>
+
+      {showPreview && lastSentPreviewHtml ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(8,12,28,0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => setShowPreview(false)}
+        >
+          <div
+            style={{
+              width: "90vw",
+              maxWidth: 980,
+              height: "85vh",
+              background: "#ffffff",
+              borderRadius: 16,
+              boxShadow: "0 18px 48px rgba(0,0,0,0.35)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 14px",
+                background: "#0f172a",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 18,
+              }}
+            >
+              <span>📧 Aperçu de l’e-mail</span>
+              <button
+                style={{
+                  padding: "10px 35px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.25)",
+                  background: "rgb(251 0 0 / 76%)",
+                  color: "#rgb(255 255 255)",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+                onClick={() => setShowPreview(false)}
+                type="button"
+              >
+                ✖ Fermer
+              </button>
+            </div>
+            <div
+              style={{
+                flex: 1,
+                overflow: "auto",
+                padding: 18,
+                fontSize: 15,
+                lineHeight: 1.5,
+                fontFamily: "\"Segoe UI\", \"Calibri\", \"Arial\", sans-serif",
+                color: "#111",
+              }}
+              dangerouslySetInnerHTML={{ __html: lastSentPreviewHtml }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <style>{`
         @keyframes pulse {
