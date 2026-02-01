@@ -1199,7 +1199,8 @@ export default function MatrixAgent({ currentUser }) {
           ? [selectedSingle[sec.key]]
           : [];
       if (ids.length > 0) {
-        return ids.some((id) => isFlexPackChoice(choiceById.get(Number(id))));
+        // Any selection inside Pack Flex section (pack_type) counts as Pack Flex.
+        return true;
       }
       const secChoiceIds = (sec.choices || []).map((c) => c.id);
       return secChoiceIds.some(
@@ -1386,15 +1387,12 @@ export default function MatrixAgent({ currentUser }) {
       return "⚠️ Pour choisir l'installation, sélectionnez d'abord un Pack Flex.";
     }
 
-    if (isDataPhoneSelected && !dataPhoneNote.trim()) {
-      return "⚠️ Merci de remplir le commentaire pour Data Phone.";
+    if (hasPackFlexSelected && !isInstallationSelected) {
+      return "⚠️ Pour un Pack Flex, l'installation est obligatoire.";
     }
 
-    if (
-      !isInstallationSelected &&
-      (!isGsmFlexOrSoloSelected || hasNonGsmFlexSoloSelection)
-    ) {
-      return "⚠️ Vous n'avez pas choisi l'installation.";
+    if (isDataPhoneSelected && !dataPhoneNote.trim()) {
+      return "⚠️ Merci de remplir le commentaire pour Data Phone.";
     }
 
     return "";
@@ -1417,8 +1415,6 @@ export default function MatrixAgent({ currentUser }) {
     isPromo6Mois,
     isPromo12Mois,
     isInstallationSelected,
-    isGsmFlexOrSoloSelected,
-    hasNonGsmFlexSoloSelection,
     hasPackFlexSelected,
     hasAnyPackTypeSelected,
     isDataPhoneSelected,
