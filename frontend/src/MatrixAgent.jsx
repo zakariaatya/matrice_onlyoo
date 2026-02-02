@@ -554,14 +554,172 @@ export default function MatrixAgent({ currentUser }) {
     [choiceById, sections]
   );
 
+  const promoSection = useMemo(() => {
+    return sections.find(
+      (s) =>
+        (s.key || "").toLowerCase().includes("promotion") ||
+        (s.title || "").toLowerCase().includes("promotion")
+    );
+  }, [sections]);
+
+  // Promo: récupérer les choix sélectionnés (single ou multi)
+  const promoSelectedIds = useMemo(() => {
+    if (!promoSection) return [];
+    const secKey = promoSection.key;
+    const secType = promoSection.type || "single";
+    if (secType === "multi") {
+      return (selectedMulti[secKey] || []).map((id) => Number(id));
+    }
+    return selectedSingle[secKey] ? [Number(selectedSingle[secKey])] : [];
+  }, [promoSection, selectedMulti, selectedSingle]);
+
+  // Promo: libellés pour les contrôles rapides
+  const promoSelectedLabels = useMemo(() => {
+    return promoSelectedIds
+      .map((id) => choiceById.get(id)?.label || "")
+      .filter(Boolean);
+  }, [promoSelectedIds, choiceById]);
+
+  // Détecter "Sans promo" sur le choix ou son parent
+  const isSansPromoChoice = useCallback(
+    (choice) => {
+      if (!choice) return false;
+      const label = (choice.label || "").toLowerCase();
+      if (label.includes("sans promo")) return true;
+      if (choice.parentId) {
+        const parent = choiceById.get(Number(choice.parentId));
+        const parentLabel = (parent?.label || "").toLowerCase();
+        if (parentLabel.includes("sans promo")) return true;
+      }
+      return false;
+    },
+    [choiceById]
+  );
+
+  // Vrai si une promo sélectionnée n'est PAS "Sans promo"
+  const hasNonSansPromoSelected = useMemo(() => {
+    if (!promoSelectedIds.length) return false;
+    return promoSelectedIds.some((id) => {
+      const c = choiceById.get(id);
+      return c ? !isSansPromoChoice(c) : false;
+    });
+  }, [promoSelectedIds, choiceById, isSansPromoChoice]);
+
+  // Vrai si GSM Solo main est sélectionné (ignore la section promo)
+  const hasGsmSoloMainSelected = useMemo(() => {
+    const isSoloMain = (choiceId) => {
+      const secKey = getSectionKeyForChoice(Number(choiceId));
+      return (secKey || "").toLowerCase() === "gsm_solo_main";
+    };
+    const isPromoChoiceId = (choiceId) => {
+      if (!promoSection) return false;
+      const c = choiceById.get(Number(choiceId));
+      return c && Number(c.sectionId) === Number(promoSection.id);
+    };
+
+    const hasGsmQty = Object.entries(gsmQty).some(([idStr, qty]) => {
+      if (Number(qty || 0) <= 0) return false;
+      return isSoloMain(idStr);
+    });
+    if (hasGsmQty) return true;
+
+    const hasChoiceQty = Object.entries(choiceQty).some(([idStr, qty]) => {
+      if (Number(qty || 0) <= 0) return false;
+      return isSoloMain(idStr);
+    });
+    if (hasChoiceQty) return true;
+
+    return selectedIds.some((id) => isSoloMain(id));
+  }, [gsmQty, choiceQty, selectedIds, getSectionKeyForChoice, promoSection, choiceById]);
+
+  // Vrai s'il existe une autre sélection que gsm_solo_main (ignore la section promo)
+  const hasNonSoloMainSelection = useMemo(() => {
+    const isSoloMain = (choiceId) => {
+      const secKey = getSectionKeyForChoice(Number(choiceId));
+      return (secKey || "").toLowerCase() === "gsm_solo_main";
+    };
+    const isPromoChoiceId = (choiceId) => {
+      if (!promoSection) return false;
+      const c = choiceById.get(Number(choiceId));
+      return c && Number(c.sectionId) === Number(promoSection.id);
+    };
+
+    const hasOtherGsmQty = Object.entries(gsmQty).some(([idStr, qty]) => {
+      if (Number(qty || 0) <= 0) return false;
+      if (isPromoChoiceId(idStr)) return false;
+      return !isSoloMain(idStr);
+    });
+    if (hasOtherGsmQty) return true;
+
+    const hasOtherChoiceQty = Object.entries(choiceQty).some(([idStr, qty]) => {
+      if (Number(qty || 0) <= 0) return false;
+      if (isPromoChoiceId(idStr)) return false;
+      return !isSoloMain(idStr);
+    });
+    if (hasOtherChoiceQty) return true;
+
+    return selectedIds.some((id) => {
+      if (isPromoChoiceId(id)) return false;
+      return !isSoloMain(id);
+    });
+  }, [gsmQty, choiceQty, selectedIds, getSectionKeyForChoice, promoSection, choiceById]);
+
+  // Vrai si GSM Flex est sélectionné tout seul (ignore la section promo)
+  const hasGsmFlexOnlySelected = useMemo(() => {
+    const isFlex = (choiceId) => {
+      const secKey = getSectionKeyForChoice(Number(choiceId));
+      return secKey ? isGsmFlexKey({ key: secKey }) : false;
+    };
+    const isPromoChoiceId = (choiceId) => {
+      if (!promoSection) return false;
+      const c = choiceById.get(Number(choiceId));
+      return c && Number(c.sectionId) === Number(promoSection.id);
+    };
+
+    const hasFlex =
+      Object.entries(gsmQty).some(
+        ([idStr, qty]) => Number(qty || 0) > 0 && !isPromoChoiceId(idStr) && isFlex(idStr)
+      ) ||
+      Object.entries(choiceQty).some(
+        ([idStr, qty]) => Number(qty || 0) > 0 && !isPromoChoiceId(idStr) && isFlex(idStr)
+      ) ||
+      selectedIds.some((id) => !isPromoChoiceId(id) && isFlex(id));
+
+    if (!hasFlex) return false;
+
+    const hasNonFlex =
+      Object.entries(gsmQty).some(
+        ([idStr, qty]) => Number(qty || 0) > 0 && !isPromoChoiceId(idStr) && !isFlex(idStr)
+      ) ||
+      Object.entries(choiceQty).some(
+        ([idStr, qty]) => Number(qty || 0) > 0 && !isPromoChoiceId(idStr) && !isFlex(idStr)
+      ) ||
+      selectedIds.some((id) => !isPromoChoiceId(id) && !isFlex(id));
+
+    return hasFlex && !hasNonFlex;
+  }, [gsmQty, choiceQty, selectedIds, getSectionKeyForChoice, isGsmFlexKey, promoSection, choiceById]);
+
+  // Vrai si "Sans promo" est sélectionné dans la promo
+  const hasSansPromoSelected = useMemo(() => {
+    if (!promoSelectedIds.length) return false;
+    return promoSelectedIds.some((id) => isSansPromoChoice(choiceById.get(id)));
+  }, [promoSelectedIds, choiceById, isSansPromoChoice]);
+
+  // Gestion des quantités GSM + règles Solo/Flex + plafond Flex
   const setGsmQuantity = useCallback(
     (choiceId, nextQty) => {
       const sectionKey = getSectionKeyForChoice(choiceId);
       const isSoloSection = sectionKey ? isGsmSoloSection(sectionKey) : false;
       const isOptSection = sectionKey ? isGsmOptSection(sectionKey) : false;
+      const isSoloMain = (sectionKey || "").toLowerCase() === "gsm_solo_main";
       const qty = Math.max(0, Number(nextQty || 0));
 
       setGsmQty((prev) => {
+        if (isSoloMain && qty > 0 && hasNonSansPromoSelected && !hasNonSoloMainSelection) {
+          setErr("⚠️ En GSM Solo, seule la promo Sans promo est autorisée.");
+          setErrKind("selection");
+          return prev;
+        }
         if (qty === 0) {
           const copy = { ...prev };
           delete copy[choiceId];
@@ -601,7 +759,13 @@ export default function MatrixAgent({ currentUser }) {
         return { ...prev, [choiceId]: qty };
       });
     },
-    [getSectionKeyForChoice, isGsmSoloSection, isGsmOptSection]
+    [
+      getSectionKeyForChoice,
+      isGsmSoloSection,
+      isGsmOptSection,
+      hasNonSansPromoSelected,
+      hasNonSoloMainSelection,
+    ]
   );
 
   const hasAvantageMultiSelected = useMemo(() => {
@@ -743,14 +907,6 @@ export default function MatrixAgent({ currentUser }) {
     return "Offre financière";
   }, [packLabel, gsmSelected]);
 
-  const promoSection = useMemo(() => {
-    return sections.find(
-      (s) =>
-        (s.key || "").toLowerCase().includes("promotion") ||
-        (s.title || "").toLowerCase().includes("promotion")
-    );
-  }, [sections]);
-
   const hasPromoSelected = useCallback(() => {
     if (!promoSection) return false;
     return selectedIds.some((id) => {
@@ -841,24 +997,6 @@ export default function MatrixAgent({ currentUser }) {
     return ids.some((id) => internetPackKeys.has(choiceById.get(Number(id))?.key));
   }, [internetPackKeys, packChoiceKey, sections, selectedMulti, choiceById]);
 
-
-
-  const promoSelectedIds = useMemo(() => {
-    if (!promoSection) return [];
-    const secKey = promoSection.key;
-    const secType = promoSection.type || "single";
-    if (secType === "multi") {
-      return (selectedMulti[secKey] || []).map((id) => Number(id));
-    }
-    return selectedSingle[secKey] ? [Number(selectedSingle[secKey])] : [];
-  }, [promoSection, selectedMulti, selectedSingle]);
-
-  const promoSelectedLabels = useMemo(() => {
-    return promoSelectedIds
-      .map((id) => choiceById.get(id)?.label || "")
-      .filter(Boolean);
-  }, [promoSelectedIds, choiceById]);
-
   const hasCadeauxChildSelected = useMemo(() => {
     if (!promoSelectedIds.length) return false;
     return promoSelectedIds.some((id) => {
@@ -907,6 +1045,17 @@ export default function MatrixAgent({ currentUser }) {
         const isSansPromo = label.includes("sans promo");
         const isMobileFlex = nextChoice?.key === "Promotion_Mobile_Flex";
         const isAvantageMulti = nextChoice?.key === "Avantage_Multi";
+
+        if (hasGsmSoloMainSelected && !hasNonSoloMainSelection && !isSansPromoChoice(nextChoice)) {
+          setErr("⚠️ En GSM Solo, seule la promo Sans promo est autorisée.");
+          setErrKind("selection");
+          return cur;
+        }
+        if (hasGsmFlexOnlySelected && !isSansPromoChoice(nextChoice) && !isAvantageMulti) {
+          setErr("⚠️ En GSM Flex seul, seules les promos Sans promo ou Avantage Multi sont autorisées.");
+          setErrKind("selection");
+          return cur;
+        }
 
         const hasCadeaux = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
         const hasSansPromo = promoSelectedLabels.some((l) => l.toLowerCase().includes("sans promo"));
@@ -1000,6 +1149,18 @@ export default function MatrixAgent({ currentUser }) {
     if (sectionKey === "pack_type" && choiceId) {
       if (choice && hasAvantageMultiSelected) {
         setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
+        setErrKind("selection");
+        return;
+      }
+    }
+    if (promoSection && sectionKey === promoSection.key && choiceId) {
+      if (hasGsmSoloMainSelected && !hasNonSoloMainSelection && !isSansPromoChoice(choice)) {
+        setErr("⚠️ En GSM Solo, seule la promo Sans promo est autorisée.");
+        setErrKind("selection");
+        return;
+      }
+      if (hasGsmFlexOnlySelected && !isSansPromoChoice(choice) && choice?.key !== "Avantage_Multi") {
+        setErr("⚠️ En GSM Flex seul, seules les promos Sans promo ou Avantage Multi sont autorisées.");
         setErrKind("selection");
         return;
       }
@@ -1314,6 +1475,7 @@ export default function MatrixAgent({ currentUser }) {
     isCadeauxSelected,
   ]);
 
+  // Validation avant envoi de l'offre
   const getValidationError = useCallback(() => {
     if (attemptedSend && (requiredMissing.length > 0 || !isClientFormatOk || !hasAnySelection)) {
       return (
@@ -1324,11 +1486,32 @@ export default function MatrixAgent({ currentUser }) {
       );
     }
 
-    if (promoSection && !hasPromoSelected() && !hasAvantageMultiSelected) {
+    // GSM Flex seul: promo obligatoire et limitée à Sans promo / Avantage Multi
+    if (promoSection && hasGsmFlexOnlySelected) {
+      if (!hasPromoSelected() && !hasAvantageMultiSelected) {
+        return "⚠️ Pour GSM Flex seul, sélectionnez une promotion (Sans promo ou Avantage Multi).";
+      }
+      if (hasPromoSelected() && !hasSansPromoSelected && !hasAvantageMultiSelected) {
+        return "⚠️ Pour GSM Flex seul, seules les promos Sans promo ou Avantage Multi sont autorisées.";
+      }
+    }
+
+    // Règle globale: promo obligatoire sauf GSM Solo seul ou cas GSM Flex seul déjà traité
+    if (
+      promoSection &&
+      !hasPromoSelected() &&
+      !hasAvantageMultiSelected &&
+      !(hasGsmSoloMainSelected && !hasNonSoloMainSelection) &&
+      !hasGsmFlexOnlySelected
+    ) {
       return "⚠️ Vous devez sélectionner au minimum une promotion avant l’envoi de l’offre.";
     }
 
+    // Validations promo (Cadeaux, Mobile Flex, durées, etc.)
     if (promoSection && hasPromoSelected()) {
+      if (hasGsmSoloMainSelected && hasNonSansPromoSelected && !hasNonSoloMainSelection) {
+        return "⚠️ En GSM Solo, seule la promo Sans promo est autorisée.";
+      }
       if (isCadeauxSelected && !hasCadeauxChildSelected) {
         return "⚠️ Merci de sélectionner un cadeau dans la liste avant l’envoi.";
       }
@@ -1403,6 +1586,11 @@ export default function MatrixAgent({ currentUser }) {
     hasAnySelection,
     promoSection,
     hasPromoSelected,
+    hasGsmSoloMainSelected,
+    hasNonSoloMainSelection,
+    hasNonSansPromoSelected,
+    hasGsmFlexOnlySelected,
+    hasSansPromoSelected,
     isCadeauxSelected,
     hasCadeauxChildSelected,
     gsmFlexQtyForDiscount,

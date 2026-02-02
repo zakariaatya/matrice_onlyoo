@@ -86,9 +86,12 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
   const choicesShort = displayChoices.map((c) => formatChoiceLabel(c)).join(" + ");
 
   // Détection de la durée promo (6 ou 12 mois) et logique Prix
-  const promoChoice = choices.find(c => c.section?.title?.toLowerCase().includes("promotion") ||
-    c.section?.key?.toLowerCase().includes("promotion"))
-    || choices.find(c => c.label.toLowerCase().includes("promo") || c.label.toLowerCase().includes("cadeaux"));
+  const promoChoice =
+    choices.find(
+      (c) =>
+        c.section?.title?.toLowerCase().includes("promotion") ||
+        c.section?.key?.toLowerCase().includes("promotion")
+    ) || choices.find((c) => c.label.toLowerCase().includes("promo") || c.label.toLowerCase().includes("cadeaux"));
 
   const promoLabel = promoChoice ? promoChoice.label.toLowerCase() : "";
   const hasCadeaux = choices.some(c => {
@@ -98,8 +101,16 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
   });
   const hasSansPromo = choices.some(c => (c.label || "").toLowerCase().includes("sans promo"));
   const isStablePrice = promoLabel.includes("cadeaux") || promoLabel.includes("sans promo") || hasCadeaux || hasSansPromo;
-  const has6Mois = promoLabel.includes("6 mois") || promoLabel.includes("6mois");
-  const duration = has6Mois ? 6 : 12;
+  const promoChoices = choices.filter((c) => isPromoSection(c));
+  const promoLabels = promoChoices.map((c) => (c.label || "").toLowerCase());
+  const promoParentLabels = promoChoices
+    .map((c) => (c.parent?.label || "").toLowerCase())
+    .filter(Boolean);
+  const allPromoLabels = [...promoLabels, ...promoParentLabels];
+
+  const has6Mois = allPromoLabels.some((label) => label.includes("6 mois") || label.includes("6mois"));
+  const has12Mois = allPromoLabels.some((label) => label.includes("12 mois") || label.includes("12mois"));
+  const duration = has6Mois ? 6 : has12Mois ? 12 : 12;
 
   let priceHtml = "";
   if (isStablePrice) {
@@ -387,9 +398,16 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <td style="font-size: 13px; font-family: Arial, sans-serif; padding-bottom: 16px;">
+                                                <td style="font-size: 13px; font-family: Arial, sans-serif; padding-bottom: 8px;">
                                                     <a href="https://www.onlyoo.be" target="_blank" style="color: #000000; text-decoration: none;">
                                                         🌐 www.onlyoo.be
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 13px; font-family: Arial, sans-serif; padding-bottom: 8px;">
+                                                    <a href="https://api.whatsapp.com/send/?phone=32470243878&text&type=phone_number&app_absent=0" target="_blank" style="color: #000000; text-decoration: none;">
+                                                        📞 Envoyer ma carte d'identite par Whatsapp
                                                     </a>
                                                 </td>
                                             </tr>
