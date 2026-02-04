@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "./api";
 import ManagerMatrix from "./ManagerMatrix";
 import MatrixAgent from "./MatrixAgent";
+import AgentOffers from "./AgentOffers";
 import Backoffice from "./Backoffice";
 import Admin from "./Admin";
 
@@ -9,7 +10,7 @@ function Button({ variant = "primary", className = "", ...props }) {
   const base = "px-4 py-2 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105";
   const styles = {
     primary: "bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 shadow-lg",
-    secondary: "bg-white border border-gray-200 hover:bg-gray-50 shadow-md",
+    secondary: "bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 shadow-md",
     danger: "bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 shadow-lg",
   };
   return <button {...props} className={`${base} ${styles[variant]} ${className}`} />;
@@ -190,7 +191,7 @@ export default function App() {
 
   const role = user?.role;
   const isAgentRole = role === "AGENT" || role === "FORMATION";
-  const isAgentView = isAgentRole && view === "agent";
+  const isAgentView = isAgentRole && (view === "agent" || view === "agentOffers");
 
   // Default view by role
   useEffect(() => {
@@ -239,9 +240,14 @@ export default function App() {
             )}
 
             {isAgentRole && (
-              <Button variant={view === "agent" ? "primary" : "secondary"} onClick={() => setView("agent")}>
-                👨‍💼 {user.name}
-              </Button>
+              <>
+                <Button variant={view === "agent" ? "primary" : "secondary"} onClick={() => setView("agent")}>
+                  👨‍💼 Nouvelle offre
+                </Button>
+                <Button variant={view === "agentOffers" ? "primary" : "secondary"} onClick={() => setView("agentOffers")}>
+                  🧾 Mes offres
+                </Button>
+              </>
             )}
 
             {role === "BACKOFFICE" && (
@@ -268,6 +274,7 @@ export default function App() {
         {view === "admin" && role === "ADMIN" && <Admin />}
         {view === "manager" && role === "MANAGER" && <ManagerMatrix />}
         {view === "agent" && isAgentRole && <MatrixAgent currentUser={user} />}
+        {view === "agentOffers" && isAgentRole && <AgentOffers currentUser={user} />}
         {view === "bo" && role === "BACKOFFICE" && <Backoffice />}
       </div>
     </div>

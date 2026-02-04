@@ -20,6 +20,82 @@ router.get("/", requireAuth, async (req, res) => {
     const role = req.user.role;
     const where = role === "AGENT" || role === "FORMATION" ? { agentId: req.user.id } : {};
 
+    if (role === "BACKOFFICE") {
+      const requestedPage = Number.parseInt(String(req.query.page || "1"), 10);
+      const requestedLimit = Number.parseInt(String(req.query.limit || "20"), 10);
+      const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.max(1, Math.min(requestedLimit, 100))
+        : 20;
+      const skip = (page - 1) * limit;
+
+      const query = String(req.query.query || "").trim();
+      const startDateRaw = String(req.query.startDate || "").trim();
+      const endDateRaw = String(req.query.endDate || "").trim();
+
+      let createdAt;
+      if (startDateRaw || endDateRaw) {
+        const gte = startDateRaw ? new Date(startDateRaw) : null;
+        const lte = endDateRaw ? new Date(endDateRaw) : null;
+        if (gte && !Number.isNaN(gte.getTime())) gte.setHours(0, 0, 0, 0);
+        if (lte && !Number.isNaN(lte.getTime())) lte.setHours(23, 59, 59, 999);
+        createdAt = {
+          ...(gte && !Number.isNaN(gte.getTime()) ? { gte } : {}),
+          ...(lte && !Number.isNaN(lte.getTime()) ? { lte } : {}),
+        };
+      }
+
+      const numericId = Number.parseInt(query, 10);
+      const andWhere = [];
+      if (createdAt && (createdAt.gte || createdAt.lte)) {
+        andWhere.push({ createdAt });
+      }
+      if (query) {
+        const upperQuery = query.toUpperCase();
+        const allowedStatus = ["DRAFT", "TO_SEND", "MAIL_SENT", "NEED_FIX", "REJECTED"];
+        andWhere.push({
+          OR: [
+            ...(Number.isFinite(numericId) ? [{ id: numericId }] : []),
+            { customerName: { contains: query, mode: "insensitive" } },
+            { customerEmail: { contains: query, mode: "insensitive" } },
+            { customerPhone: { contains: query, mode: "insensitive" } },
+            ...(allowedStatus.includes(upperQuery) ? [{ status: upperQuery }] : []),
+            { agent: { is: { name: { contains: query, mode: "insensitive" } } } },
+            { agent: { is: { email: { contains: query, mode: "insensitive" } } } },
+          ],
+        });
+      }
+
+      const boWhere = andWhere.length > 0 ? { AND: andWhere } : {};
+
+      const [total, quotes] = await prisma.$transaction([
+        prisma.quote.count({ where: boWhere }),
+        prisma.quote.findMany({
+          where: boWhere,
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: limit,
+          select: {
+            id: true,
+            customerName: true,
+            customerEmail: true,
+            customerPhone: true,
+            status: true,
+            createdAt: true,
+            agent: { select: { id: true, name: true, email: true } },
+          },
+        }),
+      ]);
+
+      return res.json({
+        quotes,
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      });
+    }
+
     const quotes = await prisma.quote.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -111,6 +187,91 @@ router.get("/export-emails", requireAuth, requireRole("BACKOFFICE"), async (req,
     res.send(csvContent);
   } catch (err) {
     console.error("GET /api/quotes/export-emails ERROR =>", err);
+    res.status(500).json({ error: err?.message || "Erreur serveur" });
+  }
+});
+
+/**
+ * ✅ GET /api/quotes/my-offers
+ * Liste paginée des offres envoyées par l'agent (30 derniers jours).
+ * Les offres plus anciennes d'un mois sont supprimées pour cet agent.
+ */
+router.get("/my-offers", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res) => {
+  try {
+    const requestedPage = Number.parseInt(String(req.query.page || "1"), 10);
+    const requestedLimit = Number.parseInt(String(req.query.limit || "10"), 10);
+    const query = String(req.query.query || "").trim();
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 50))
+      : 10;
+    const skip = (page - 1) * limit;
+
+    const cutoffDate = new Date();
+    cutoffDate.setMonth(cutoffDate.getMonth() - 1);
+
+    await prisma.quote.deleteMany({
+      where: {
+        agentId: req.user.id,
+        status: "MAIL_SENT",
+        createdAt: { lt: cutoffDate },
+      },
+    });
+
+    const numericId = Number.parseInt(query, 10);
+    const andWhere = [
+      {
+        agentId: req.user.id,
+        status: "MAIL_SENT",
+        createdAt: { gte: cutoffDate },
+      },
+    ];
+    if (query) {
+      andWhere.push({
+        OR: [
+          ...(Number.isFinite(numericId) ? [{ id: numericId }] : []),
+          { customerName: { contains: query, mode: "insensitive" } },
+          { customerEmail: { contains: query, mode: "insensitive" } },
+          { customerPhone: { contains: query, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    const where = {
+      AND: andWhere,
+    };
+
+    const [total, quotes] = await prisma.$transaction([
+      prisma.quote.count({ where }),
+      prisma.quote.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          customerName: true,
+          customerEmail: true,
+          customerPhone: true,
+          emailContent: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    res.json({
+      page,
+      limit,
+      total,
+      totalPages,
+      cutoffDate: cutoffDate.toISOString(),
+      quotes,
+    });
+  } catch (err) {
+    console.error("GET /api/quotes/my-offers ERROR =>", err);
     res.status(500).json({ error: err?.message || "Erreur serveur" });
   }
 });

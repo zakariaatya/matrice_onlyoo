@@ -86,11 +86,17 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
   const choicesShort = displayChoices.map((c) => formatChoiceLabel(c)).join(" + ");
 
   // Détection de la durée promo (6 ou 12 mois) et logique Prix
-  const promoChoice = choices.find(c => c.section?.title?.toLowerCase().includes("promotion") ||
-    c.section?.key?.toLowerCase().includes("promotion"))
-    || choices.find(c => c.label.toLowerCase().includes("promo") || c.label.toLowerCase().includes("cadeaux"));
+  const promoChoices = choices.filter((c) => {
+    const label = String(c.label || "").toLowerCase();
+    return (
+      isPromoSection(c) ||
+      label.includes("promo") ||
+      label.includes("cadeaux")
+    );
+  });
 
-  const promoLabel = promoChoice ? promoChoice.label.toLowerCase() : "";
+  const promoLabels = promoChoices.map((c) => String(c.label || "").toLowerCase());
+  const promoLabel = promoLabels[0] || "";
   const hasCadeaux = choices.some(c => {
     const label = (c.label || "").toLowerCase();
     const parentLabel = (c.parent?.label || "").toLowerCase();
@@ -98,8 +104,9 @@ function buildOutlookCompatibleHtml({ quote, agent, choices, boEmail, logoOnlyoo
   });
   const hasSansPromo = choices.some(c => (c.label || "").toLowerCase().includes("sans promo"));
   const isStablePrice = promoLabel.includes("cadeaux") || promoLabel.includes("sans promo") || hasCadeaux || hasSansPromo;
-  const has6Mois = promoLabel.includes("6 mois") || promoLabel.includes("6mois");
-  const duration = has6Mois ? 6 : 12;
+  const has6Mois = promoLabels.some((p) => p.includes("6 mois") || p.includes("6mois"));
+  const has12Mois = promoLabels.some((p) => p.includes("12 mois") || p.includes("12mois"));
+  const duration = has6Mois ? 6 : (has12Mois ? 12 : 12);
 
   let priceHtml = "";
   if (isStablePrice) {

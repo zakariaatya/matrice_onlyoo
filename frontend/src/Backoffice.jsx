@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import api from "./api";
 
 export default function Backoffice() {
@@ -13,42 +13,32 @@ export default function Backoffice() {
   const [endDate, setEndDate] = useState("");
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const pageSize = 20;
 
-  const filteredQuotes = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return (quotes || []).filter((item) => {
-      const matchesQuery =
-        !q ||
-        String(item.id || "").includes(q) ||
-        (item.customerName || "").toLowerCase().includes(q) ||
-        (item.customerEmail || "").toLowerCase().includes(q) ||
-        (item.customerPhone || "").toLowerCase().includes(q) ||
-        (item.agent?.name || "").toLowerCase().includes(q) ||
-        (item.status || "").toLowerCase().includes(q);
-
-      const created = item.createdAt ? new Date(item.createdAt) : null;
-      const afterStart = startDate ? created && created >= new Date(startDate) : true;
-      const beforeEnd = endDate ? created && created <= new Date(endDate) : true;
-      return matchesQuery && afterStart && beforeEnd;
-    });
-  }, [quotes, query, startDate, endDate]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredQuotes.length / pageSize));
-  const pagedQuotes = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filteredQuotes.slice(start, start + pageSize);
-  }, [filteredQuotes, page, pageSize]);
-
-  const load = async () => {
+  const load = async (nextPage = page) => {
     try {
       setError("");
       setLoading(true);
-      const { data } = await api.get("/quotes");
-      setQuotes(data.quotes || []);
+      const { data } = await api.get("/quotes", {
+        params: {
+          page: nextPage,
+          limit: pageSize,
+          query: query.trim() || undefined,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+        },
+      });
+      setQuotes(data?.quotes || []);
+      setTotal(Number(data?.total || 0));
+      setTotalPages(Math.max(1, Number(data?.totalPages || 1)));
     } catch (e) {
       console.error(e);
       setError(e?.response?.data?.error || e?.message || "Erreur lors du chargement");
+      setQuotes([]);
+      setTotal(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
@@ -60,8 +50,8 @@ export default function Backoffice() {
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(page);
+  }, [page]);
 
   const viewMail = async (q) => {
     try {
@@ -84,7 +74,7 @@ export default function Backoffice() {
       setError("");
       setActionId(q.id);
       await api.delete(`/quotes/${q.id}`);
-      await load();
+      await load(page);
       if (selectedQuote?.id === q.id) {
         setMailPreview(null);
         setSelectedQuote(null);
@@ -141,7 +131,7 @@ export default function Backoffice() {
             >
               {exporting ? "Export..." : "Exporter Excel"}
             </button>
-            <button className="px-3 py-1 rounded border" onClick={load} disabled={loading}>
+            <button className="px-3 py-1 rounded border" onClick={() => load(page)} disabled={loading}>
               {loading ? "Chargement..." : "Rafraichir"}
             </button>
           </div>
@@ -155,6 +145,9 @@ export default function Backoffice() {
             onChange={(e) => {
               setQuery(e.target.value);
               setPage(1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") load(1);
             }}
           />
           <input
@@ -175,6 +168,15 @@ export default function Backoffice() {
               setPage(1);
             }}
           />
+        </div>
+        <div className="mb-4">
+          <button
+            className="px-3 py-1 rounded border bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+            onClick={() => load(1)}
+            disabled={loading}
+          >
+            Appliquer les filtres
+          </button>
         </div>
 
         {error && (
@@ -199,7 +201,7 @@ export default function Backoffice() {
             </thead>
 
             <tbody>
-              {pagedQuotes.map((q) => (
+              {quotes.map((q) => (
                 <tr key={q.id} className="border-b last:border-0">
                   <td className="py-2">#{q.id}</td>
                   <td>{formatCustomerName(q.customerName)}</td>
@@ -228,7 +230,7 @@ export default function Backoffice() {
                 </tr>
               ))}
 
-              {pagedQuotes.length === 0 && (
+              {quotes.length === 0 && (
                 <tr>
                   <td className="py-3 text-gray-500" colSpan={8}>
                     Aucun devis.
@@ -241,7 +243,7 @@ export default function Backoffice() {
 
         <div className="flex items-center justify-between mt-3 text-sm">
           <div>
-            {filteredQuotes.length} devis • page {page} / {totalPages}
+            {total} devis • page {page} / {totalPages}
           </div>
           <div className="space-x-2">
             <button
