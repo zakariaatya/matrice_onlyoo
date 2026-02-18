@@ -362,10 +362,14 @@ router.post("/", requireAuth, requireRole("AGENT", "FORMATION"), async (req, res
         const secTitle = (c.section?.title || "").toLowerCase();
         const secKey = (c.section?.key || "").toLowerCase();
         const isGsm = secTitle.includes("gsm") || secKey.includes("gsm");
-        const isSolo = secTitle.includes("solo") || secKey.includes("solo");
-        if (isGsm && !isSolo) {
-          flexQty += Number(qty || 0);
-        }
+        if (!isGsm) return;
+        const isSolo = secTitle.includes("solo") || secKey.includes("solo") || secKey.startsWith("gsm_solo_");
+        const isOpt =
+          secKey.startsWith("gsm_opt_") ||
+          secKey.startsWith("gsm_option") ||
+          (secTitle.includes("gsm") && (secTitle.includes("opt") || secTitle.includes("option")));
+        if (isSolo || isOpt) return;
+        flexQty += Number(qty || 0);
       });
     }
 

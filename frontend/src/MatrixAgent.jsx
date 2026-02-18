@@ -437,9 +437,34 @@ export default function MatrixAgent({ currentUser }) {
   }, []);
 
   const sectionKeyLower = useCallback((section) => (section?.key || "").toLowerCase(), []);
-  const isGsmFlexKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_flex"), [sectionKeyLower]);
-  const isGsmOptKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_opt_"), [sectionKeyLower]);
-  const isGsmSoloKey = useCallback((section) => sectionKeyLower(section).startsWith("gsm_solo_"), [sectionKeyLower]);
+  const sectionTitleLower = useCallback((section) => (section?.title || "").toLowerCase(), []);
+  const isGsmFlexKey = useCallback(
+    (section) => {
+      const key = sectionKeyLower(section);
+      if (key.startsWith("gsm_flex")) return true;
+      const title = sectionTitleLower(section);
+      return title.includes("gsm") && title.includes("flex");
+    },
+    [sectionKeyLower, sectionTitleLower]
+  );
+  const isGsmOptKey = useCallback(
+    (section) => {
+      const key = sectionKeyLower(section);
+      if (key.startsWith("gsm_opt_") || key.startsWith("gsm_option")) return true;
+      const title = sectionTitleLower(section);
+      return title.includes("gsm") && (title.includes("opt") || title.includes("option"));
+    },
+    [sectionKeyLower, sectionTitleLower]
+  );
+  const isGsmSoloKey = useCallback(
+    (section) => {
+      const key = sectionKeyLower(section);
+      if (key.startsWith("gsm_solo_")) return true;
+      const title = sectionTitleLower(section);
+      return title.includes("gsm") && title.includes("solo");
+    },
+    [sectionKeyLower, sectionTitleLower]
+  );
 
   // Detect GSM section keys - séparé en Flex, Opt et Solo (basé sur key)
   const gsmSectionInfo = useMemo(() => {
@@ -1034,7 +1059,7 @@ export default function MatrixAgent({ currentUser }) {
       if (nextChoice?.key === "Avantage_Multi" && hasAnyPackTypeSelected && !exists) {
         setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
         setErrKind("selection");
-        return cur;
+        return prev;
       }
 
       if (promoSection && sectionKey === promoSection.key && !exists) {
@@ -1049,12 +1074,12 @@ export default function MatrixAgent({ currentUser }) {
         if (hasGsmSoloMainSelected && !hasNonSoloMainSelection && !isSansPromoChoice(nextChoice)) {
           setErr("⚠️ En GSM Solo, seule la promo Sans promo est autorisée.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         if (hasGsmFlexOnlySelected && !isSansPromoChoice(nextChoice) && !isAvantageMulti) {
           setErr("⚠️ En GSM Flex seul, seules les promos Sans promo ou Avantage Multi sont autorisées.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
 
         const hasCadeaux = promoSelectedLabels.some((l) => l.toLowerCase().includes("cadeaux"));
@@ -1066,32 +1091,32 @@ export default function MatrixAgent({ currentUser }) {
         if (is6 && isPromo12Mois) {
           setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         if (is12 && isPromo6Mois) {
           setErr("⚠️ Impossible de sélectionner 6 mois et 12 mois en même temps.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         if ((isCadeaux || isSansPromo) && hasMobileFlex) {
           setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         if (isMobileFlex && (hasCadeaux || hasSansPromo)) {
           setErr("⚠️ Promotion Mobile Flex n'est pas compatible avec Cadeaux ou Sans promo.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         if (isAvantageMulti && hasAnyPackTypeSelected) {
           setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         if (isAvantageMulti && gsmFlexQtyForDiscount === 0) {
           setErr("⚠️ Pour Avantage Multi, sélectionnez au moins un GSM Flex.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
 
         // Promotions are single-choice, except allow Mobile Flex as extra with 6 or 12 months.
@@ -1117,7 +1142,7 @@ export default function MatrixAgent({ currentUser }) {
         if (choice && isFlexPackChoice(choice) && hasAvantageMultiSelected && !exists) {
           setErr("⚠️ Avantage Multi n'est pas compatible avec Pack Flex.");
           setErrKind("selection");
-          return cur;
+          return prev;
         }
         const isInternetPack = choice && internetPackKeys.has(choice.key);
         if (isInternetPack && !exists) {
