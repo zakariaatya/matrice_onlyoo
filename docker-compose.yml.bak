@@ -1,0 +1,104 @@
+version: "3.8"
+
+services:
+
+  traefik:
+    image: traefik:v2.11
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+
+      # HTTPS uniquement
+      - --entrypoints.websecure.address=:443
+
+      # Let's Encrypt TLS Challenge
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=z.atya@eolcenter.net
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+
+    ports:
+      - "443:443"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+
+    networks:
+      - web
+
+    restart: unless-stopped
+
+
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: eol_matrix
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    networks:
+      - web
+
+    restart: unless-stopped
+
+
+   backend:
+    build:
+      context: ./backend
+
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/eol_matrix
+
+    depends_on:
+      - db
+
+    command: sh -c "npm install && npx prisma generate && npm run dev"
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`matrice.eolcenter.net`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=le"
+      - "traefik.http.services.backend.loadbalancer.server.port=4000"
+
+    networks:
+      - web
+
+    restart: unless-stopped
+
+
+  frontend:
+    build:
+      context: ./frontend
+
+    environment:
+      REACT_APP_API_URL: https://matrice.eolcenter.net/api
+      VITE_API_URL: https://matrice.eolcenter.net/api
+
+    command: sh -c "npm install && npm start"
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`matrice.eolcenter.net`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=le"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+
+    networks:
+      - web
+
+    restart: unless-stopped
+
+
+volumes:
+  pgdata:
+
+
+networks:
+  web:
+    driver: bridge

@@ -1,69 +1,81 @@
 version: "3.8"
+
 services:
+  traefik:
+    image: traefik:v2.11
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=z.atya@eolcenter.net
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    restart: unless-stopped
+    networks:
+      - web
+
   db:
     image: postgres:14
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: eol_matrix
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d eol_matrix"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+    restart: unless-stopped
+    networks:
+      - web
 
   backend:
     build:
       context: ./backend
+    env_file:
+      - ./backend/.env
     environment:
-      NODE_ENV: development
-      PORT: 4000
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/eol_matrix
-    ports:
-      - "4000:4000"
+      NODE_ENV: production
     depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    command: sh -c "npm install && npx prisma generate && npm run dev"
+      - db
+    command: sh -c "npm ci --omit=dev && npx prisma generate && npm run start"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.backend.rule=Host(`matrice.eolcenter.net`) && PathPrefix(`/api`)
+      - traefik.http.routers.backend.entrypoints=websecure
+      - traefik.http.routers.backend.tls.certresolver=le
+      - traefik.http.services.backend.loadbalancer.server.port=4000
+    restart: unless-stopped
+    networks:
+      - web
 
   frontend:
     build:
       context: ./frontend
     environment:
-      REACT_APP_API_URL: http://localhost:4000/api
-      VITE_API_URL: http://localhost:4000/api
+      REACT_APP_API_URL: https://matrice.eolcenter.net/api
+      VITE_API_URL: https://matrice.eolcenter.net/api
       HOST: 0.0.0.0
       PORT: 3000
       WDS_SOCKET_PORT: 0
-    ports:
-      - "3000:3000"
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     command: sh -c "npm install && npm start"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=Host(`matrice.eolcenter.net`)
+      - traefik.http.routers.frontend.entrypoints=websecure
+      - traefik.http.routers.frontend.tls.certresolver=le
+      - traefik.http.services.frontend.loadbalancer.server.port=3000
+    restart: unless-stopped
+    networks:
+      - web
 
-  prisma-studio:
-    build:
-      context: ./backend
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/eol_matrix
-    ports:
-      - "5555:5555"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    command: sh -c "npm install && npx prisma studio --port 5555 --hostname 0.0.0.0"
 volumes:
   pgdata:
+
+networks:
+  web:
+    driver: bridge

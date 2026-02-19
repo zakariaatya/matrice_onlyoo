@@ -1,0 +1,26 @@
+services:
+  traefik:
+    image: traefik:v2.11
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+
+      - --entrypoints.websecure.address=:443
+
+      # SSL Let's Encrypt (pas besoin du port 80)
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=z.atya@eolcenter.net
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+
+    ports:
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/letsencrypt:/letsencrypt
+    networks:
+      - web
+    restart: unless-stopped
+
+networks:
+  web:
+    external: true
